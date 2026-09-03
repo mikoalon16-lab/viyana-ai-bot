@@ -8,7 +8,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 )
-from googletrans import Translator
+from openai import OpenAI
 
 # =========================================================
 # CONFIG & ENVIRONMENT VARIABLES
@@ -22,8 +22,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Otomatik Çevirici
-translator = Translator()
+# OpenAI Client (çeviri için)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 # =========================================================
 # DATABASE (SQLITE)
@@ -710,19 +711,38 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 2. XP Ekleme
     add_xp_and_coins(user_id, chat_id, xp_amount=2, coin_amount=1)
 
-    # 3. Otomatik Çeviri
-    if len(text) > 2 and not text.startswith("/"):
+    # 3. Otomatik Çeviri (OpenAI)
+    if len(text) > 2 and not text.startswith("/") and client:
         try:
             detected_lang = detect_language(text)
             
             if detected_lang == "ru":
-                translated = translator.translate(text, src="ru", dest="tr").text
-                if translated.lower() != text.lower():
-                    await update.message.reply_text(f"🔤 **Çeviri (TR):** {translated}")
-            elif detected_lang == "tr":
-                translated = translator.translate(text, src="tr", dest="ru").text
-                if translated.lower() != text.lower():
-                    await update.message.reply_text(f"🔤 **Перевод (RU):** {translated}")
+                target_lang = "Turkish"
+                prefix = "🔤 **Çeviri (TR):**"
+            else:
+                target_lang = "Russian"
+                prefix = "🔤 **Перевод (RU):**"
+
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": f"You are a professional translator. Translate the given text to {target_lang}. Only return the translated text, nothing else."
+                    },
+                    {
+                        "role": "user",
+                        "content": text
+                    }
+                ],
+                temperature=0.2,
+                max_tokens=1000
+            )
+            translated = response.choices[0].message.content.strip()
+            
+            if translated and translated.lower().strip() != text.lower().strip():
+                await update.message.reply_text(f"{prefix} {translated}")
+                
         except Exception as e:
             logger.error(f"Çeviri hatası: {e}")
 
@@ -734,6 +754,9 @@ def main():
     if not TELEGRAM_BOT_TOKEN:
         logger.error("TELEGRAM_BOT_TOKEN değişkeni bulunamadı!")
         return
+
+    if not OPENAI_API_KEY:
+        logger.warning("OPENAI_API_KEY bulunamadı! Otomatik çeviri devre dışı kalacak.")
 
     init_db()
 
