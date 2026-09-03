@@ -420,37 +420,25 @@ def detect_language(text: str) -> str:
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text if update.message else ""
     lang = detect_language(user_text)
-    
+    name = update.effective_user.first_name or ""
+
     if lang == "ru":
         msg = (
-            "🤖 **Добро пожаловать в Viyana AI!**\n\n"
-            "Автоперевод + ИИ-ассистент активны.\n\n"
-            "📌 Популярные команды:\n"
-            "• /viana <вопрос> — Чат с ИИ\n"
-            "• /burc kova — Гороскоп\n"
-            "• /oyun — Игра в слова\n"
-            "• /gunluk — Ежедневный бонус\n"
-            "• /coin — Баланс\n"
-            "• /help — Все команды\n"
-            "• /hakkinda — О боте\n\n"
-            "🌐 Сообщения автоматически переводятся (TR ⇆ RU)"
+            f"🤖 **Добро пожаловать, {name}!**\n\n"
+            f"Я **Viyana AI** — автопереводчик и ИИ-ассистент.\n"
+            f"Создан **Ehed**.\n\n"
+            f"📋 Выберите категорию ниже:"
         )
     else:
         msg = (
-            "🤖 **Viyana AI'ya Hoş Geldiniz!**\n\n"
-            "Otomatik çeviri + Yapay Zeka asistanı aktif.\n\n"
-            "📌 Popüler komutlar:\n"
-            "• /viana <soru> — AI ile sohbet et\n"
-            "• /burc kova — Burç yorumu\n"
-            "• /oyun — Kelime oyunu\n"
-            "• /gunluk — Günlük ödül\n"
-            "• /coin — Bakiyen\n"
-            "• /help — Tüm komutlar\n"
-            "• /hakkinda — Bot hakkında\n\n"
-            "🌐 Mesajlar otomatik çevrilir (TR ⇆ RU)"
+            f"🤖 **Hoş geldin, {name}!**\n\n"
+            f"Ben **Viyana AI** — otomatik çeviri ve yapay zeka asistanıyım.\n"
+            f"**Ehed** tarafından tasarlandım.\n\n"
+            f"📋 Aşağıdan bir kategori seç:"
         )
-    
-    await update.message.reply_text(msg, parse_mode="Markdown")
+
+    keyboard = get_help_keyboard(lang)
+    await update.message.reply_text(msg, reply_markup=keyboard, parse_mode="Markdown")
 
 async def profil_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -812,10 +800,81 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     chat_id = query.message.chat.id
-    data = query.data
+    data = query.data or ""
+    lang = detect_language(query.message.text or "")
 
+    # ========== MENÜ BUTONLARI ==========
+    if data.startswith("menu_") or data.startswith("panel_"):
+        back_btn = InlineKeyboardMarkup([
+            [InlineKeyboardButton("◀️ Geri" if lang != "ru" else "◀️ Назад", callback_data="menu_back")]
+        ])
+
+        if data == "menu_back":
+            text = get_menu_text("main", lang)
+            keyboard = get_help_keyboard(lang)
+            await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
+            return
+
+        if data == "menu_ai":
+            await query.edit_message_text(get_menu_text("ai", lang), reply_markup=back_btn, parse_mode="Markdown")
+            return
+        if data == "menu_oyun":
+            await query.edit_message_text(get_menu_text("oyun", lang), reply_markup=back_btn, parse_mode="Markdown")
+            return
+        if data == "menu_ekonomi":
+            await query.edit_message_text(get_menu_text("ekonomi", lang), reply_markup=back_btn, parse_mode="Markdown")
+            return
+        if data == "menu_eglence":
+            await query.edit_message_text(get_menu_text("eglence", lang), reply_markup=back_btn, parse_mode="Markdown")
+            return
+        if data == "menu_mod":
+            await query.edit_message_text(get_menu_text("mod", lang), reply_markup=back_btn, parse_mode="Markdown")
+            return
+        if data == "menu_profil":
+            await query.edit_message_text(get_menu_text("profil", lang), reply_markup=back_btn, parse_mode="Markdown")
+            return
+        if data == "menu_hakkinda":
+            await query.edit_message_text(get_menu_text("hakkinda", lang), reply_markup=back_btn, parse_mode="Markdown")
+            return
+
+        # Panel kısayolları — bilgi ver
+        if data == "panel_ban":
+            msg = "🚫 **Ban:** Kullanıcının mesajına yanıt verip `/ban` yaz." if lang != "ru" else "🚫 **Бан:** Ответьте на сообщение и напишите `/ban`."
+            await query.edit_message_text(msg, reply_markup=back_btn, parse_mode="Markdown")
+            return
+        if data == "panel_sus":
+            msg = "🔇 **Sustur:** Mesaja yanıt verip `/sus` yaz (1 saat)." if lang != "ru" else "🔇 **Мут:** Ответьте на сообщение и напишите `/sus`."
+            await query.edit_message_text(msg, reply_markup=back_btn, parse_mode="Markdown")
+            return
+        if data == "panel_unsus":
+            msg = "🔊 **Unsus:** Susturulan kişinin eski mesajına yanıt verip `/unsus` yaz." if lang != "ru" else "🔊 **Размут:** Ответьте на старое сообщение и напишите `/unsus`."
+            await query.edit_message_text(msg, reply_markup=back_btn, parse_mode="Markdown")
+            return
+        if data == "panel_mahkeme":
+            msg = "⚖️ **Mahkeme:** Birinin mesajına yanıt verip `/mahkeme` yaz." if lang != "ru" else "⚖️ **Суд:** Ответьте на сообщение и напишите `/mahkeme`."
+            await query.edit_message_text(msg, reply_markup=back_btn, parse_mode="Markdown")
+            return
+        if data == "panel_liderlik":
+            msg = "🏆 Liderlik için gruba `/liderlik` yaz." if lang != "ru" else "🏆 Напишите `/liderlik` в чат."
+            await query.edit_message_text(msg, reply_markup=back_btn, parse_mode="Markdown")
+            return
+        if data == "panel_unban":
+            msg = (
+                "✅ **Unban:** Kullanıcının mesajına yanıt verip `/unban` yaz.\n"
+                "veya `/unban 123456789` (kullanıcı ID)"
+            ) if lang != "ru" else (
+                "✅ **Разбан:** Ответьте на сообщение `/unban` или `/unban 123456789`"
+            )
+            await query.edit_message_text(msg, reply_markup=back_btn, parse_mode="Markdown")
+            return
+        return
+
+    # ========== OYUN BUTONLARI ==========
     if chat_id not in active_games:
-        await query.edit_message_text("⚠️ Bu oyun artık aktif değil.")
+        try:
+            await query.edit_message_text("⚠️ Bu oyun artık aktif değil.")
+        except Exception:
+            pass
         return
 
     game = active_games[chat_id]
@@ -861,6 +920,8 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔤 **Kelime:** {' '.join(masked)}"
     )
     await query.edit_message_text(txt, reply_markup=reply_markup, parse_mode="Markdown")
+
+
 
 async def game_timer(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int, lang: str):
     try:
@@ -979,49 +1040,138 @@ async def hakkinda_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # EK KOMUTLAR
 # =========================================================
 
+def get_help_keyboard(lang="tr"):
+    """Modern kategori menüsü"""
+    if lang == "ru":
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton("🤖 ИИ Ассистент", callback_data="menu_ai"),
+             InlineKeyboardButton("🎮 Игры", callback_data="menu_oyun")],
+            [InlineKeyboardButton("💰 Экономика", callback_data="menu_ekonomi"),
+             InlineKeyboardButton("🎉 Развлечения", callback_data="menu_eglence")],
+            [InlineKeyboardButton("👮 Модерация", callback_data="menu_mod"),
+             InlineKeyboardButton("👤 Профиль", callback_data="menu_profil")],
+            [InlineKeyboardButton("ℹ️ О боте", callback_data="menu_hakkinda")],
+        ])
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🤖 AI Asistan", callback_data="menu_ai"),
+         InlineKeyboardButton("🎮 Oyunlar", callback_data="menu_oyun")],
+        [InlineKeyboardButton("💰 Ekonomi", callback_data="menu_ekonomi"),
+         InlineKeyboardButton("🎉 Eğlence", callback_data="menu_eglence")],
+        [InlineKeyboardButton("👮 Moderasyon", callback_data="menu_mod"),
+         InlineKeyboardButton("👤 Profil", callback_data="menu_profil")],
+        [InlineKeyboardButton("ℹ️ Hakkında", callback_data="menu_hakkinda")],
+    ])
+
+
+def get_menu_text(category, lang="tr"):
+    """Kategori içerik metinleri"""
+    menus = {
+        "tr": {
+            "main": "📋 **Komut Kategorileri** — Bir kategori seç:\n\n🤖 AI · 🎮 Oyun · 💰 Ekonomi · 🎉 Eğlence\n👮 Moderasyon · 👤 Profil · ℹ️ Hakkında",
+            "ai": (
+                "🤖 **AI Asistan**\n\n"
+                "• `/viana <soru>` — Yapay zekaya soru sor\n"
+                "• Örnek: `/viana bugün hava nasıl?`\n"
+                "• Bir mesaja yanıt verip `/viana` da yazabilirsin"
+            ),
+            "oyun": (
+                "🎮 **Oyunlar**\n\n"
+                "• `/oyun` veya `/kelime` — Kelime tahmin oyunu\n"
+                "• `/oyun iptal` — Oyunu iptal et\n"
+                "• `/das` — Yazı tura (coin bahis)\n"
+                "• `/das 20` — 20 coin bahis"
+            ),
+            "ekonomi": (
+                "💰 **Ekonomi**\n\n"
+                "• `/coin` — Coin bakiyen\n"
+                "• `/gunluk` — Günlük ücretsiz ödül\n"
+                "• `/liderlik` — Liderlik tablosu\n"
+                "• `/seviye` / `/profil` — XP ve seviye"
+            ),
+            "eglence": (
+                "🎉 **Eğlence**\n\n"
+                "• `/burc kova` — Burç yorumu\n"
+                "• `/giybet` — Rastgele dedikodu\n"
+                "• `/lakaptak` — Rastgele lakap\n"
+                "• `/mahkeme` — Mahkeme (yanıtla)"
+            ),
+            "mod": (
+                "👮 **Moderasyon** _(sadece yöneticiler)_\n\n"
+                "• `/ban` — Yasakla (yanıtla)\n"
+                "• `/unban` — Yasağı kaldır (yanıtla veya ID)\n"
+                "• `/sus` — 1 saat sustur (yanıtla)\n"
+                "• `/unsus` / `/unmute` — Susturmayı kaldır\n"
+                "• `/panel` — Yönetim paneli"
+            ),
+            "profil": (
+                "👤 **Profil & Bilgi**\n\n"
+                "• `/profil` / `/seviye` — Seviye, XP, unvan\n"
+                "• `/coin` — Bakiyen\n"
+                "• `/liderlik` — Sıralama\n"
+                "• `/hakkinda` — Bot hakkında"
+            ),
+            "hakkinda": (
+                "ℹ️ **Viyana AI Hakkında**\n\n"
+                "Ben otomatik çeviri ve Yapay Zeka Asistan botuyum.\n"
+                "**Ehed** tarafından tasarlandım.\n\n"
+                "🌐 Mesajlar otomatik çevrilir (TR ⇆ RU)"
+            ),
+        },
+        "ru": {
+            "main": "📋 **Категории команд** — Выберите:\n\n🤖 ИИ · 🎮 Игры · 💰 Экономика · 🎉 Развлечения\n👮 Модерация · 👤 Профиль · ℹ️ О боте",
+            "ai": (
+                "🤖 **ИИ Ассистент**\n\n"
+                "• `/viana <вопрос>` — Спросить ИИ\n"
+                "• Пример: `/viana как дела?`"
+            ),
+            "oyun": (
+                "🎮 **Игры**\n\n"
+                "• `/oyun` или `/kelime` — Игра в слова\n"
+                "• `/oyun iptal` — Отменить игру\n"
+                "• `/das` — Орёл/решка"
+            ),
+            "ekonomi": (
+                "💰 **Экономика**\n\n"
+                "• `/coin` — Баланс\n"
+                "• `/gunluk` — Ежедневный бонус\n"
+                "• `/liderlik` — Таблица лидеров"
+            ),
+            "eglence": (
+                "🎉 **Развлечения**\n\n"
+                "• `/burc kova` — Гороскоп\n"
+                "• `/giybet` — Сплетни\n"
+                "• `/lakaptak` — Никнейм\n"
+                "• `/mahkeme` — Суд"
+            ),
+            "mod": (
+                "👮 **Модерация** _(только админы)_\n\n"
+                "• `/ban` — Бан\n"
+                "• `/sus` — Мут на 1 час\n"
+                "• `/unsus` — Снять мут\n"
+                "• `/panel` — Панель"
+            ),
+            "profil": (
+                "👤 **Профиль**\n\n"
+                "• `/profil` / `/seviye` — Уровень и XP\n"
+                "• `/coin` — Баланс\n"
+                "• `/liderlik` — Рейтинг"
+            ),
+            "hakkinda": (
+                "ℹ️ **О боте Viyana AI**\n\n"
+                "Я автоматический переводчик и ИИ-ассистент.\n"
+                "Создан **Ehed**.\n\n"
+                "🌐 Автоперевод (TR ⇆ RU)"
+            ),
+        }
+    }
+    return menus.get(lang, menus["tr"]).get(category, menus["tr"]["main"])
+
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = detect_language(update.message.text if update.message else "")
-    if lang == "ru":
-        msg = (
-            "📖 **Список команд Viyana AI**\n\n"
-            "• /start — Главное меню\n"
-            "• /viana <вопрос> — Спросить ИИ-ассистента\n"
-            "• /help — Эта справка\n"
-            "• /oyun или /kelime — Игра в слова\n"
-            "• /hakkinda — О боте\n"
-            "• /coin — Баланс монет\n"
-            "• /seviye или /profil — Уровень и XP\n"
-            "• /gunluk — Ежедневный бонус\n"
-            "• /liderlik — Таблица лидеров\n"
-            "• /das — Орёл/решка (ставка)\n"
-            "• /burc <знак> — Гороскоп (пример: /burc kova)\n"
-            "• /mahkeme — Суд (ответьте на сообщение)\n"
-            "• /giybet — Случайные сплетни\n"
-            "• /lakaptak — Случайный никнейм\n"
-            "• /ban /sus — Только для админов\n"
-            "• /panel — Панель управления группой"
-        )
-    else:
-        msg = (
-            "📖 **Viyana AI Komut Listesi**\n\n"
-            "• /start — Ana menü\n"
-            "• /viana <soru> — Yapay zeka asistanına sor\n"
-            "• /help — Bu yardım menüsü\n"
-            "• /oyun veya /kelime — Kelime tahmin oyunu\n"
-            "• /hakkinda — Bot hakkında\n"
-            "• /coin — Coin bakiyen\n"
-            "• /seviye veya /profil — Seviye, XP ve unvan\n"
-            "• /gunluk — Günlük ödül\n"
-            "• /liderlik — Liderlik tablosu\n"
-            "• /das — Yazı tura / coin bahis\n"
-            "• /burc <burç> — Burç yorumu (örnek: /burc kova)\n"
-            "• /mahkeme — Mahkeme (bir mesaja yanıt vererek)\n"
-            "• /giybet — Rastgele dedikodu\n"
-            "• /lakaptak — Rastgele lakap\n"
-            "• /ban /sus — Sadece yöneticiler\n"
-            "• /panel — Grup yönetim paneli"
-        )
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    text = get_menu_text("main", lang)
+    keyboard = get_help_keyboard(lang)
+    await update.message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
 async def viana_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1228,6 +1378,72 @@ async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Ban işlemi başarısız: {e}")
 
 
+async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Yasağı kaldır (unban)"""
+    lang = detect_language(update.message.text if update.message else "")
+    user = update.effective_user
+    chat = update.effective_chat
+
+    if chat.type == "private":
+        await update.message.reply_text("Bu komut sadece gruplarda çalışır.")
+        return
+
+    try:
+        member = await chat.get_member(user.id)
+        if member.status not in ("administrator", "creator"):
+            if lang == "ru":
+                await update.message.reply_text("⛔ Только администраторы могут использовать эту команду.")
+            else:
+                await update.message.reply_text("⛔ Bu komutu sadece yöneticiler kullanabilir.")
+            return
+    except Exception:
+        await update.message.reply_text("Yetki kontrolü yapılamadı.")
+        return
+
+    target = None
+    if update.message.reply_to_message:
+        target = update.message.reply_to_message.from_user
+    elif context.args:
+        try:
+            target_id = int(context.args[0])
+            # unban by user id
+            await context.bot.unban_chat_member(chat.id, target_id, only_if_banned=True)
+            if lang == "ru":
+                await update.message.reply_text(f"✅ Пользователь `{target_id}` разбанен.", parse_mode="Markdown")
+            else:
+                await update.message.reply_text(f"✅ Kullanıcı `{target_id}` yasağı kaldırıldı.", parse_mode="Markdown")
+            return
+        except ValueError:
+            pass
+        except Exception as e:
+            await update.message.reply_text(f"Unban başarısız: {e}")
+            return
+
+    if not target:
+        if lang == "ru":
+            await update.message.reply_text(
+                "Использование:\n"
+                "• Ответьте на сообщение: `/unban`\n"
+                "• Или: `/unban 123456789` (ID)"
+            , parse_mode="Markdown")
+        else:
+            await update.message.reply_text(
+                "Kullanım:\n"
+                "• Mesaja yanıt verip `/unban` yaz\n"
+                "• Veya: `/unban 123456789` (kullanıcı ID)"
+            , parse_mode="Markdown")
+        return
+
+    try:
+        await context.bot.unban_chat_member(chat.id, target.id, only_if_banned=True)
+        if lang == "ru":
+            await update.message.reply_text(f"✅ {target.first_name} разбанен.")
+        else:
+            await update.message.reply_text(f"✅ {target.first_name} yasağı kaldırıldı (unban).")
+    except Exception as e:
+        await update.message.reply_text(f"Unban işlemi başarısız: {e}")
+
+
 async def sus_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Kullanıcıyı sustur (mute)"""
     lang = detect_language(update.message.text if update.message else "")
@@ -1275,27 +1491,85 @@ async def sus_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Susturma başarısız: {e}")
 
 
+async def unsus_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Susturmayı kaldır (unmute)"""
+    lang = detect_language(update.message.text if update.message else "")
+    user = update.effective_user
+    chat = update.effective_chat
+
+    if chat.type == "private":
+        await update.message.reply_text("Bu komut sadece gruplarda çalışır.")
+        return
+
+    try:
+        member = await chat.get_member(user.id)
+        if member.status not in ("administrator", "creator"):
+            if lang == "ru":
+                await update.message.reply_text("⛔ Только администраторы.")
+            else:
+                await update.message.reply_text("⛔ Bu komutu sadece yöneticiler kullanabilir.")
+            return
+    except Exception:
+        return
+
+    target = None
+    if update.message.reply_to_message:
+        target = update.message.reply_to_message.from_user
+
+    if not target:
+        if lang == "ru":
+            await update.message.reply_text("Снимите мут: ответьте на сообщение пользователя командой /unsus")
+        else:
+            await update.message.reply_text("Susturmayı kaldırmak için kişinin mesajına yanıt verip /unsus yaz.")
+        return
+
+    try:
+        # Tüm izinleri geri ver (varsayılan grup izinleri)
+        await context.bot.restrict_chat_member(
+            chat_id=chat.id,
+            user_id=target.id,
+            permissions=ChatPermissions(
+                can_send_messages=True,
+                can_send_media_messages=True,
+                can_send_polls=True,
+                can_send_other_messages=True,
+                can_add_web_page_previews=True,
+                can_invite_users=True,
+            )
+        )
+        if lang == "ru":
+            await update.message.reply_text(f"🔊 {target.first_name} снова может писать.")
+        else:
+            await update.message.reply_text(f"🔊 {target.first_name} artık konuşabilir (susturma kaldırıldı).")
+    except Exception as e:
+        await update.message.reply_text(f"Susturma kaldırılamadı: {e}")
+
+
 async def panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = detect_language(update.message.text if update.message else "")
     if lang == "ru":
-        msg = (
-            "🛠 **Панель управления группой**\n\n"
-            "• /ban — Забанить пользователя (ответьте на сообщение)\n"
-            "• /sus — Замьютить на 1 час\n"
-            "• /liderlik — Топ участников\n"
-            "• /mahkeme — Судебный розыгрыш\n\n"
-            "_Только администраторы могут использовать moderation команды._"
-        )
+        msg = "🛠 **Панель управления** — Выберите:"
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🚫 Бан", callback_data="panel_ban"),
+             InlineKeyboardButton("✅ Разбан", callback_data="panel_unban")],
+            [InlineKeyboardButton("🔇 Мут", callback_data="panel_sus"),
+             InlineKeyboardButton("🔊 Размут", callback_data="panel_unsus")],
+            [InlineKeyboardButton("⚖️ Суд", callback_data="panel_mahkeme"),
+             InlineKeyboardButton("🏆 Лидеры", callback_data="panel_liderlik")],
+            [InlineKeyboardButton("◀️ Назад", callback_data="menu_back")],
+        ])
     else:
-        msg = (
-            "🛠 **Grup Yönetim Paneli**\n\n"
-            "• /ban — Kullanıcıyı yasakla (mesaja yanıt ver)\n"
-            "• /sus — 1 saat sustur\n"
-            "• /liderlik — Liderlik tablosu\n"
-            "• /mahkeme — Mahkeme simülasyonu\n\n"
-            "_Moderasyon komutlarını sadece yöneticiler kullanabilir._"
-        )
-    await update.message.reply_text(msg, parse_mode="Markdown")
+        msg = "🛠 **Grup Yönetim Paneli** — Bir işlem seç:"
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🚫 Ban", callback_data="panel_ban"),
+             InlineKeyboardButton("✅ Unban", callback_data="panel_unban")],
+            [InlineKeyboardButton("🔇 Sustur", callback_data="panel_sus"),
+             InlineKeyboardButton("🔊 Unsus", callback_data="panel_unsus")],
+            [InlineKeyboardButton("⚖️ Mahkeme", callback_data="panel_mahkeme"),
+             InlineKeyboardButton("🏆 Liderlik", callback_data="panel_liderlik")],
+            [InlineKeyboardButton("◀️ Geri", callback_data="menu_back")],
+        ])
+    await update.message.reply_text(msg, reply_markup=keyboard, parse_mode="Markdown")
 
 
 async def giybet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1367,6 +1641,14 @@ async def kelime_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await oyun_command(update, context)
 
 
+async def oyuniptal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Oyunu iptal et — /oyuniptal"""
+    # context.args yoksa iptal gibi davran
+    if not context.args:
+        context.args = ["iptal"]
+    await oyun_command(update, context)
+
+
 # =========================================================
 # MAIN
 # =========================================================
@@ -1403,7 +1685,11 @@ def main():
     app.add_handler(CommandHandler("lakaptak", lakaptak_command))
     app.add_handler(CommandHandler("panel", panel_command))
     app.add_handler(CommandHandler("ban", ban_command))
+    app.add_handler(CommandHandler("unban", unban_command))
     app.add_handler(CommandHandler("sus", sus_command))
+    app.add_handler(CommandHandler("unsus", unsus_command))
+    app.add_handler(CommandHandler("unmute", unsus_command))
+    app.add_handler(CommandHandler("oyuniptal", oyuniptal_command))
 
     # Buton Dinleyici
     app.add_handler(CallbackQueryHandler(button_click))
