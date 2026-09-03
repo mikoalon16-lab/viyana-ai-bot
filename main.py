@@ -714,14 +714,47 @@ async def liderlik_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def oyun_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    lang = detect_language(update.message.text)
+    lang = detect_language(update.message.text if update.message else "")
+    args = [a.lower() for a in (context.args or [])]
 
-    if chat_id in active_games:
-        if lang == "ru":
-            await update.message.reply_text("⚠️ Игра уже идет!")
+    # /oyun iptal  veya  /oyun stop  → mevcut oyunu zorla bitir
+    if args and args[0] in ("iptal", "stop", "iptalet", "cancel", "bitir"):
+        if chat_id in active_games:
+            kelime = active_games[chat_id]["kelime"]
+            del active_games[chat_id]
+            if lang == "ru":
+                await update.message.reply_text(f"🛑 Игра отменена.\nСлово было: **{kelime}**", parse_mode="Markdown")
+            else:
+                await update.message.reply_text(f"🛑 Oyun iptal edildi.\nDoğru kelime: **{kelime}**", parse_mode="Markdown")
         else:
-            await update.message.reply_text("⚠️ Zaten devam eden bir oyun var!")
+            if lang == "ru":
+                await update.message.reply_text("ℹ️ Активной игры нет.")
+            else:
+                await update.message.reply_text("ℹ️ Devam eden bir oyun yok.")
         return
+
+    # Eski / takılı kalmış oyun kontrolü (70 saniyeden eskiyse otomatik temizle)
+    if chat_id in active_games:
+        game = active_games[chat_id]
+        age = time.time() - game.get("start_time", 0)
+        if age > 70:
+            del active_games[chat_id]
+            # devam et, yeni oyun başlat
+        else:
+            kalan = max(0, int(60 - age))
+            if lang == "ru":
+                await update.message.reply_text(
+                    f"⚠️ Игра уже идет! Осталось ~{kalan} сек.\n"
+                    f"Отменить: `/oyun iptal`",
+                    parse_mode="Markdown"
+                )
+            else:
+                await update.message.reply_text(
+                    f"⚠️ Zaten devam eden bir oyun var! Kalan süre ~{kalan} sn.\n"
+                    f"İptal etmek için: `/oyun iptal`",
+                    parse_mode="Markdown"
+                )
+            return
 
     item = random.choice(KELIME_HAVUZU)
     kelime = item["kelime"].upper()
@@ -738,7 +771,10 @@ async def oyun_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
 
     keyboard = [
-        [InlineKeyboardButton("💡 Harf Aç / Подсказка", callback_data="harf_ac")]
+        [
+            InlineKeyboardButton("💡 Harf Aç", callback_data="harf_ac"),
+            InlineKeyboardButton("🛑 İptal", callback_data="oyun_iptal")
+        ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -747,14 +783,16 @@ async def oyun_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🎮 **Словесная игра началась!**\n\n"
             f"📝 **Подсказка:** {ipucu}\n"
             f"🔤 **Слово:** {' '.join(masked)}\n"
-            f"⏳ **Время:** 60 секунд!"
+            f"⏳ **Время:** 60 секунд!\n"
+            f"_Отмена: /oyun iptal_"
         )
     else:
         txt = (
             f"🎮 **Kelime Oyunu Başladı!**\n\n"
             f"📝 **İpucu:** {ipucu}\n"
             f"🔤 **Kelime:** {' '.join(masked)}\n"
-            f"⏳ **Süre:** 60 Saniye!"
+            f"⏳ **Süre:** 60 Saniye!\n"
+            f"_İptal: /oyun iptal_"
         )
 
     msg = await update.message.reply_text(txt, reply_markup=reply_markup, parse_mode="Markdown")
@@ -764,20 +802,47 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     chat_id = query.message.chat.id
+    data = query.data
 
     if chat_id not in active_games:
+        await query.edit_message_text("⚠️ Bu oyun artık aktif değil.")
         return
 
     game = active_games[chat_id]
     kelime = game["kelime"]
     masked = game["masked"]
 
+    # İptal butonu
+    if data == "oyun_iptal":
+        del active_games[chat_id]
+        await query.edit_message_text(
+            f"🛑 Oyun iptal edildi.\nDoğru kelime: **{kelime}**",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Harf aç
     unopened = [i for i, char in enumerate(masked) if char == "_"]
     if unopened:
         idx = random.choice(unopened)
         masked[idx] = kelime[idx]
+        game["masked"] = masked
 
-    keyboard = [[InlineKeyboardButton("💡 Harf Aç / Подсказка", callback_data="harf_ac")]]
+    # Hepsi açıldıysa bitir
+    if "_" not in masked:
+        del active_games[chat_id]
+        await query.edit_message_text(
+            f"🎉 Kelime tamamlandı: **{kelime}**",
+            parse_mode="Markdown"
+        )
+        return
+
+    keyboard = [
+        [
+            InlineKeyboardButton("💡 Harf Aç", callback_data="harf_ac"),
+            InlineKeyboardButton("🛑 İptal", callback_data="oyun_iptal")
+        ]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     txt = (
@@ -788,18 +853,27 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(txt, reply_markup=reply_markup, parse_mode="Markdown")
 
 async def game_timer(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int, lang: str):
-    await asyncio.sleep(60)
-    if chat_id in active_games:
-        game = active_games[chat_id]
-        kelime = game["kelime"]
-        del active_games[chat_id]
-        
-        if lang == "ru":
-            txt = f"⏰ **Время вышло!** Никто не угадал слово.\nПравильное слово: **{kelime}**"
-        else:
-            txt = f"⏰ **Süre Doldu!** Kimse kelimeyi bilemedi.\nDoğru Kelime: **{kelime}**"
-            
-        await context.bot.send_message(chat_id=chat_id, text=txt, parse_mode="Markdown")
+    try:
+        await asyncio.sleep(60)
+        if chat_id in active_games:
+            # Sadece bu oyunun timer'ıysa sil (start_time kontrolü ile daha güvenli)
+            game = active_games.get(chat_id)
+            if not game:
+                return
+            # 55 saniyeden eskiyse süre dolmuş kabul et
+            if time.time() - game.get("start_time", 0) >= 55:
+                kelime = game["kelime"]
+                del active_games[chat_id]
+                if lang == "ru":
+                    txt = f"⏰ **Время вышло!** Никто не угадал слово.\nПравильное слово: **{kelime}**"
+                else:
+                    txt = f"⏰ **Süre Doldu!** Kimse kelimeyi bilemedi.\nDoğru Kelime: **{kelime}**"
+                await context.bot.send_message(chat_id=chat_id, text=txt, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"game_timer hatası: {e}")
+        # Takılı kalmasın diye yine de temizle
+        if chat_id in active_games:
+            del active_games[chat_id]
 
 # =========================================================
 # OTOMATİK ÇEVİRİ VE MESAJ DİNLEYİCİ
