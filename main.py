@@ -430,7 +430,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• /burc <знак> — Гороскоп\n"
             "• /profil — Ваш профиль\n"
             "• /liderlik — Таблица лидеров\n"
-            "• /gunluk — Ежедневный бонус\n\n"
+            "• /gunluk — Ежедневный бонус\n"
+            "• /hakkinda — О боте\n\n"
             "🌐 **Автоперевод:** Любое сообщение в группе автоматически переводится (TR ⇆ RU)!"
         )
     else:
@@ -442,7 +443,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• /burc <burç> — Günlük burç yorumu\n"
             "• /profil — Profiliniz ve seviyeniz\n"
             "• /liderlik — Liderlik tablosu\n"
-            "• /gunluk — Günlük XP ve coin ödülü\n\n"
+            "• /gunluk — Günlük XP ve coin ödülü\n"
+            "• /hakkinda — Bot hakkında\n\n"
             "🌐 **Otomatik Çeviri:** Gruba yazılan her mesaj otomatik çevrilir (TR ⇆ RU)!"
         )
     
@@ -718,10 +720,10 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             if detected_lang == "ru":
                 target_lang = "Turkish"
-                prefix = "🔤 **Çeviri (TR):**"
+                prefix = "🇹🇷 **Çeviri (TR):**"
             else:
                 target_lang = "Russian"
-                prefix = "🔤 **Перевод (RU):**"
+                prefix = "🇷🇺 **Перевод (RU):**"
 
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -741,10 +743,29 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
             translated = response.choices[0].message.content.strip()
             
             if translated and translated.lower().strip() != text.lower().strip():
-                await update.message.reply_text(f"{prefix} {translated}")
+                await update.message.reply_text(f"{prefix} {translated}", parse_mode="Markdown")
                 
         except Exception as e:
             logger.error(f"Çeviri hatası: {e}")
+
+
+async def hakkinda_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = detect_language(update.message.text if update.message else "")
+    
+    if lang == "ru":
+        msg = (
+            "🤖 **О боте Viyana AI**\n\n"
+            "Я — автоматический переводчик и ИИ-ассистент.\n"
+            "Создан **Ehed**."
+        )
+    else:
+        msg = (
+            "🤖 **Viyana AI Hakkında**\n\n"
+            "Ben otomatik çeviri ve Yapay Zeka Asistan botuyum.\n"
+            "**Ehed** tarafından tasarlandım."
+        )
+    
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
 # =========================================================
 # MAIN
@@ -770,6 +791,8 @@ def main():
     app.add_handler(CommandHandler("burc", burc_command))
     app.add_handler(CommandHandler("liderlik", liderlik_command))
     app.add_handler(CommandHandler("oyun", oyun_command))
+    app.add_handler(CommandHandler("hakkinda", hakkinda_command))
+    app.add_handler(CommandHandler("about", hakkinda_command))
 
     # Buton Dinleyici
     app.add_handler(CallbackQueryHandler(button_click))
