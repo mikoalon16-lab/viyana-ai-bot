@@ -70,7 +70,7 @@ def add_xp_and_coins(user_id, chat_id, xp_amount=10, coin_amount=5):
     conn.close()
 
 # =========================================================
-# 250+ KELİMELİK DEV HAVUZ (LOKAL VE SIFIR MALİYET)
+# KELİME HAVUZU
 # =========================================================
 
 KELIME_HAVUZU = [
@@ -276,7 +276,6 @@ KELIME_HAVUZU = [
     {"kelime": "BESTE", "ipucu": "Müzik eseri yapıtı"},
     {"kelime": "NOTASI", "ipucu": "Müziğin alfabesi ve okuma simgeleri"},
     {"kelime": "GİTAR", "ipucu": "Tellik popüler enstrüman"},
-    {"```python
     {"kelime": "PIYANO", "ipucu": "Siyah beyaz tuşları olan vurmalı çalgı"},
     {"kelime": "KEMAN", "ipucu": "Arşe ile çalınan telli zarif enstrüman"},
     {"kelime": "FLÖT", "ipucu": "Üflenerek çalınan delikli çalgı"},
@@ -403,7 +402,7 @@ KELIME_HAVUZU = [
 active_games = {}
 
 # =========================================================
-# DİL ALGILAMA VE YARDIMCI DİL FONKSİYONU
+# DİL ALGILAMA
 # =========================================================
 
 def detect_language(text: str) -> str:
@@ -414,7 +413,7 @@ def detect_language(text: str) -> str:
     return "tr"
 
 # =========================================================
-# BOT KOMUTLARI (ÇİFT DİL DESTEKLİ)
+# BOT KOMUTLARI
 # =========================================================
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -584,7 +583,7 @@ async def liderlik_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 # =========================================================
-# KELİME OYUNU SİSTEMİ (ÇİFT DİL VE ZAMANLAYICI)
+# KELİME OYUNU SİSTEMİ
 # =========================================================
 
 async def oyun_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -677,7 +676,7 @@ async def game_timer(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_i
         await context.bot.send_message(chat_id=chat_id, text=txt, parse_mode="Markdown")
 
 # =========================================================
-# OTOMATİK ÇEVİRİ VE MESAJ DİNLEYİCİ (HANDS-FREE)
+# OTOMATİK ÇEVİRİ VE MESAJ DİNLEYİCİ
 # =========================================================
 
 async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -708,21 +707,19 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             return
 
-    # 2. XP Ekleme (Her mesaja)
+    # 2. XP Ekleme
     add_xp_and_coins(user_id, chat_id, xp_amount=2, coin_amount=1)
 
-    # 3. HANDS-FREE OTOMATİK ÇEVİRİ (Komutsuz)
+    # 3. Otomatik Çeviri
     if len(text) > 2 and not text.startswith("/"):
         try:
             detected_lang = detect_language(text)
             
             if detected_lang == "ru":
-                # Rusçaysa Türkçe'ye Çevir
                 translated = translator.translate(text, src="ru", dest="tr").text
                 if translated.lower() != text.lower():
                     await update.message.reply_text(f"🔤 **Çeviri (TR):** {translated}")
             elif detected_lang == "tr":
-                # Türkçe ise Rusça'ya Çevir
                 translated = translator.translate(text, src="tr", dest="ru").text
                 if translated.lower() != text.lower():
                     await update.message.reply_text(f"🔤 **Перевод (RU):** {translated}")
@@ -730,7 +727,7 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Çeviri hatası: {e}")
 
 # =========================================================
-# MAIN (BOTU BAŞLATMA)
+# MAIN
 # =========================================================
 
 def main():
