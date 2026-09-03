@@ -759,16 +759,8 @@ async def oyun_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     item = random.choice(KELIME_HAVUZU)
     kelime = item["kelime"].upper()
     ipucu = item["ipucu"]
-
     masked = ["_" for _ in kelime]
-
-    active_games[chat_id] = {
-        "kelime": kelime,
-        "ipucu": ipucu,
-        "masked": masked,
-        "start_time": time.time(),
-        "chat_id": chat_id
-    }
+    harf_sayisi = len(kelime)
 
     keyboard = [
         [
@@ -780,23 +772,41 @@ async def oyun_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if lang == "ru":
         txt = (
-            f"🎮 **Словесная игра началась!**\n\n"
+            f"🎮 **Игра началась!**\n\n"
+            f"❓ **Вопрос:** Что это за слово?\n"
             f"📝 **Подсказка:** {ipucu}\n"
-            f"🔤 **Слово:** {' '.join(masked)}\n"
-            f"⏳ **Время:** 60 секунд!\n"
+            f"🔤 **Слово ({harf_sayisi} букв):** {' '.join(masked)}\n"
+            f"⏳ **Время:** 60 секунд\n\n"
+            f"_Напишите слово в чат чтобы угадать_\n"
             f"_Отмена: /oyun iptal_"
         )
     else:
         txt = (
             f"🎮 **Kelime Oyunu Başladı!**\n\n"
+            f"❓ **Soru:** Bu hangi kelime?\n"
             f"📝 **İpucu:** {ipucu}\n"
-            f"🔤 **Kelime:** {' '.join(masked)}\n"
-            f"⏳ **Süre:** 60 Saniye!\n"
+            f"🔤 **Kelime ({harf_sayisi} harf):** {' '.join(masked)}\n"
+            f"⏳ **Süre:** 60 Saniye\n\n"
+            f"_Tahmin etmek için kelimeyi sohbete yazın_\n"
             f"_İptal: /oyun iptal_"
         )
 
-    msg = await update.message.reply_text(txt, reply_markup=reply_markup, parse_mode="Markdown")
-    asyncio.create_task(game_timer(context, chat_id, msg.message_id, lang))
+    try:
+        msg = await update.message.reply_text(txt, reply_markup=reply_markup, parse_mode="Markdown")
+        # Mesaj başarıyla gittikten sonra oyunu kaydet
+        active_games[chat_id] = {
+            "kelime": kelime,
+            "ipucu": ipucu,
+            "masked": masked,
+            "start_time": time.time(),
+            "chat_id": chat_id
+        }
+        asyncio.create_task(game_timer(context, chat_id, msg.message_id, lang))
+    except Exception as e:
+        logger.error(f"Oyun başlatma hatası: {e}")
+        if chat_id in active_games:
+            del active_games[chat_id]
+        await update.message.reply_text("⚠️ Oyun başlatılamadı, tekrar deneyin.")
 
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1406,3 +1416,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
