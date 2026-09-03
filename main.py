@@ -1,329 +1,242 @@
 import logging
 import os
+import random
 import re
+import sqlite3
 import time
-
-from openai import OpenAI
 from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    ContextTypes,
-    MessageHandler,
-    filters,
+    ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 )
+from openai import OpenAI
 
 # =========================================================
-# LOGGING
-# =========================================================
-
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
-
-logger = logging.getLogger(__name__)
-
-
-# =========================================================
-# ENVIRONMENT VARIABLES
+# ENVIRONMENT VARIABLES & CONFIG
 # =========================================================
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-known_group_ids = set()
-
-
-# =========================================================
-# OPENAI CONFIG
-# =========================================================
-
 OPENAI_MODEL = "gpt-4o-mini"
-
 DAILY_BUDGET_USD = 0.20
-
 INPUT_PRICE_PER_MILLION = 0.15
 OUTPUT_PRICE_PER_MILLION = 0.60
 
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
 
 # =========================================================
-# DAILY USAGE
+# DATABASE (SQLITE)
 # =========================================================
 
-daily_input_tokens = 0
-daily_output_tokens = 0
-current_day = time.strftime("%Y-%m-%d")
+def init_db():
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+    
+    # Kullanıcı Ekonomi & XP Tablosu
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            chat_id INTEGER,
+            xp INTEGER DEFAULT 0,
+            level INTEGER DEFAULT 1,
+            coins INTEGER DEFAULT 100,
+            title TEXT DEFAULT 'Yeni Üye'
+        )
+    """)
+    conn.commit()
+    conn.close()
 
+def add_xp_and_coins(user_id, chat_id, xp_amount=10, coin_amount=5):
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT xp, level, coins FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    
+    if row is None:
+        cursor.execute(
+            "INSERT INTO users (user_id, chat_id, xp, level, coins) VALUES (?, ?, ?, ?, ?)",
+            (user_id, chat_id, xp_amount, 1, 100 + coin_amount)
+        )
+    else:
+        new_xp = row[0] + xp_amount
+        new_level = int(new_xp / 100) + 1  # Her 100 XP = 1 Seviye
+        new_coins = row[2] + coin_amount
+        
+        # Unvan Ataması
+        title = "Bronz Üye 🥉"
+        if new_level >= 5: title = "Gümüş Üye 🥈"
+        if new_level >= 10: title = "Altın Üye 🥇"
+        if new_level >= 20: title = "Sohbet Kralı 👑"
 
-def reset_daily_usage_if_needed():
-    global daily_input_tokens
-    global daily_output_tokens
-    global current_day
-
-    today = time.strftime("%Y-%m-%d")
-
-    if today != current_day:
-        current_day = today
-        daily_input_tokens = 0
-        daily_output_tokens = 0
-
-        logger.info("Günlük API kullanım sayacı sıfırlandı.")
-
-
-def calculate_cost(input_tokens, output_tokens):
-    input_cost = (input_tokens / 1_000_000) * INPUT_PRICE_PER_MILLION
-    output_cost = (output_tokens / 1_000_000) * OUTPUT_PRICE_PER_MILLION
-    return input_cost + output_cost
-
-
-def current_daily_cost():
-    return calculate_cost(
-        daily_input_tokens,
-        daily_output_tokens,
-    )
-
-
-# =========================================================
-# PROMPTS
-# =========================================================
-
-TRANSLATION_PROMPT = """
-Sen C2 seviyesinde ana dil yetkinliğine sahip, üst düzey profesyonel bir çevirmensin. Asla açıklama ekleme, yorum yapma, selamlama.
-Görevin: Gelen metnin kaynak dilini tespit et ve hedef diller olan TÜRKÇE ve RUSÇA'ya en doğru, bağlamsal, akıcı ve profesyonel şekilde çevir.
-
-Gelen metin TÜRKÇE ise:
-🇷🇺 [Rusça çevirisi]
-
-Gelen metin RUSÇA ise:
-🇹🇷 [Türkçe çevirisi]
-
-Gelen metin farklı bir dilde (örneğin İngilizce vb.) ise:
-🇹🇷 [Türkçe çevirisi]
-🇷🇺 [Rusça çevirisi]
-
-Kural: Sadece bayrak emojisi ve profesyonel çeviriyi yaz. Kelimesi kelimesine değil, anlam bütünlüğünü koruyan C2 seviyesinde profesyonel bir dil kullan.
-"""
-
-ASSISTANT_PROMPT = """
-Sen son derece zeki, analitik, bilge ve üst düzey profesyonel bir yapay zeka asistanısın. Kullanıcıların sorularına net, doğru, etkileyici, akıllıca ve kapsamlı yanıtlar ver.
-"""
-
+        cursor.execute(
+            "UPDATE users SET xp = ?, level = ?, coins = ?, title = ? WHERE user_id = ?",
+            (new_xp, new_level, new_coins, title, user_id)
+        )
+        
+    conn.commit()
+    conn.close()
 
 # =========================================================
-# OPENAI CLIENT
+# OPENAI CLIENT & HELPERS
 # =========================================================
 
 client = None
 
-
 def get_openai_client():
     global client
-    if client is None:
+    if client is None and OPENAI_API_KEY:
         client = OpenAI(api_key=OPENAI_API_KEY)
     return client
 
-
-# =========================================================
-# CLEAN RESPONSE
-# =========================================================
-
-def clean_response(text):
-    if not text:
-        return ""
-
-    text = re.sub(
-        r"<think>.*?</think>",
-        "",
-        text,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-
-    text = re.sub(
-        r"\([^)]*note[^)]*\)",
-        "",
-        text,
-        flags=re.IGNORECASE,
-    )
-    text = re.sub(
-        r"\(Note:.*?\)",
-        "",
-        text,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-
-    return text.strip()
-
-
-# =========================================================
-# OPENAI REQUEST HELPER
-# =========================================================
-
-def ask_openai(system_prompt, user_text):
-    global daily_input_tokens
-    global daily_output_tokens
-
-    reset_daily_usage_if_needed()
-
-    current_cost = current_daily_cost()
-
-    if current_cost >= DAILY_BUDGET_USD:
-        logger.warning("Günlük bütçe sınırına ulaşıldı: $%.6f", current_cost)
-        return None
-
+def ask_ai_short(prompt, system_role="Sen komik, zeki ve esprili bir asistansın."):
+    openai_client = get_openai_client()
+    if not openai_client:
+        return "⚠️ OpenAI API anahtarı bulunamadı."
+    
     try:
-        openai_client = get_openai_client()
-
         response = openai_client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=[
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                },
-                {
-                    "role": "user",
-                    "content": user_text,
-                },
+                {"role": "system", "content": system_role},
+                {"role": "user", "content": prompt}
             ],
-            max_tokens=300,
-            temperature=0.3,
+            max_tokens=150,  # Token tasarrufu
+            temperature=0.7
         )
-
-        usage = getattr(response, "usage", None)
-
-        if usage:
-            input_tokens = getattr(usage, "prompt_tokens", 0)
-            output_tokens = getattr(usage, "completion_tokens", 0)
-
-            daily_input_tokens += input_tokens
-            daily_output_tokens += output_tokens
-
-            logger.info(
-                "API usage | input=%s | output=%s | daily_cost=$%.6f",
-                input_tokens,
-                output_tokens,
-                current_daily_cost(),
-            )
-
-        if not response.choices:
-            return ""
-
-        output = response.choices[0].message.content
-
-        return clean_response(output)
-
+        return response.choices[0].message.content.strip()
     except Exception as e:
-        logger.error("OpenAI Error: %s", e, exc_info=True)
-        return "⚠️ HATA (debug): " + str(e)
-
-
-# =========================================================
-# COMMAND HANDLERS
-# =========================================================
-
-async def about_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    about_text = (
-        "🤖 Viyana AI\n\n"
-        "Ben EHED tarafından oluşturulmuş C2 düzeyinde profesyonel "
-        "Rusça-Türkçe çeviri ve zeki asistan botuyum."
-    )
-    await update.effective_message.reply_text(about_text)
-
+        logger.error(f"AI Hata: {e}")
+        return "⚠️ Yanıt üretilirken bir hata oluştu."
 
 # =========================================================
-# MESSAGE HANDLER
+# KOMUT HANDLERLARI
+# =========================================================
+
+async def profile_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT xp, level, coins, title FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if row:
+        xp, level, coins, title = row
+        text = (
+            f"👤 **{update.effective_user.first_name} Profil Kartı**\n\n"
+            f"🏅 **Unvan:** {title}\n"
+            f"⭐ **Seviye:** {level}\n"
+            f"✨ **XP:** {xp}\n"
+            f"🪙 **Bakiye:** {coins} Coin"
+        )
+    else:
+        text = "Henüz profiliniz oluşmadı. Mesaj atarak XP kazanmaya başlayın!"
+    
+    await update.effective_message.reply_text(text, parse_mode="Markdown")
+
+async def cuzdan_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT coins FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    coins = row[0] if row else 0
+    await update.effective_message.reply_text(f"👛 Cüzdan Bakiye: **{coins} Coin**", parse_mode="Markdown")
+
+async def yazitura_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not context.args or not context.args[0].isdigit():
+        await update.effective_message.reply_text("Kullanım: `/yazitura <miktar>`", parse_mode="Markdown")
+        return
+    
+    bet = int(context.args[0])
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT coins FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    
+    if not row or row[0] < bet:
+        await update.effective_message.reply_text("❌ Yetersiz bakiye!")
+        conn.close()
+        return
+
+    outcome = random.choice(["Yazı", "Tura"])
+    user_choice = random.choice(["Yazı", "Tura"])
+    
+    if outcome == user_choice:
+        new_coins = row[0] + bet
+        msg = f"🪙 **{outcome}** geldi! Tebrikler, **{bet} Coin** kazandınız!"
+    else:
+        new_coins = row[0] - bet
+        msg = f"🪙 **{outcome}** geldi! Maalesef **{bet} Coin** kaybettiniz."
+
+    cursor.execute("UPDATE users SET coins = ? WHERE user_id = ?", (new_coins, user_id))
+    conn.commit()
+    conn.close()
+    await update.effective_message.reply_text(msg, parse_mode="Markdown")
+
+async def lakap_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.reply_to_message:
+        await update.effective_message.reply_text("Lütfen lakap takmak istediğiniz kişinin mesajını yanıtlayarak `/lakap` yazın.")
+        return
+    
+    target_user = update.message.reply_to_message.from_user.first_name
+    sample_text = update.message.reply_to_message.text or "Sessizce duruyor."
+    
+    prompt = f"Kullanıcı: {target_user}. Mesajı: '{sample_text}'. Bu kişiye mesajına uygun komik, esprili 2-3 kelimelik bir lakap tak."
+    lakap = ask_ai_short(prompt)
+    
+    await update.effective_message.reply_text(f"🎭 **{target_user}** için yeni lakap:\n👉 **{lakap}**", parse_mode="Markdown")
+
+async def mahkeme_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.reply_to_message:
+        await update.effective_message.reply_text("Mahkemeyi başlatmak için bir üyenin mesajını yanıtlayın!")
+        return
+
+    accuser = update.effective_user.first_name
+    accused = update.message.reply_to_message.from_user.first_name
+    case_text = update.message.reply_to_message.text or "Anlaşmazlık."
+
+    prompt = f"Davacı: {accuser}, Davalı: {accused}. Olay: '{case_text}'. Sen mizahi bir hakimsin. Eğlenceli bir karar ver ve sembolik komik bir ceza kes."
+    karar = ask_ai_short(prompt, system_role="Yüksek mahkeme başkanı mizahi hakim.")
+    
+    await update.effective_message.reply_text(f"⚖️ **VİYANA MAHKEMESİ KARARI** ⚖️\n\n{karar}", parse_mode="Markdown")
+
+async def fal_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_name = update.effective_user.first_name
+    prompt = f"{user_name} için bugünle ilgili çok absürt, komik ve 1 cümlelik bir kehanet/fal söyle."
+    fal = ask_ai_short(prompt)
+    await update.effective_message.reply_text(f"🔮 **{user_name} için Günün Falı:**\n\n_{fal}_", parse_mode="Markdown")
+
+# =========================================================
+# MESAJ HANDLER
 # =========================================================
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.effective_message
-
-    if not message or not message.text:
+    if not update.effective_message or not update.effective_chat:
         return
 
-    if update.effective_chat.type in ["group", "supergroup"]:
-        known_group_ids.add(update.effective_chat.id)
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
 
-    text = message.text.strip()
+    # Ücretsiz XP & Coin Ekleme
+    add_xp_and_coins(user_id, chat_id)
 
-    if update.effective_chat.type == "private" and text.startswith("02021995"):
-        text_to_send = text[8:].strip()
-
-        if not text_to_send:
-            await message.reply_text("⚠️ Lütfen mesaj metnini yazın.")
-            return
-
-        if not known_group_ids:
-            await message.reply_text("⚠️ Aktif grup bulunamadı.")
-            return
-
-        success_count = 0
-        fail_count = 0
-
-        for chat_id in list(known_group_ids):
-            try:
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=text_to_send
-                )
-                success_count += 1
-            except Exception as e:
-                logger.error("Grup %s hatası: %s", chat_id, e)
-                fail_count += 1
-
-        await message.reply_text(
-            f"✅ Tamamlandı!\n"
-            f"🟢 Başarılı: {success_count}\n"
-            f"🔴 Başarısız: {fail_count}"
-        )
-        return
-
-    if not text or text.startswith("/"):
-        return
-
-    bot_username = context.bot.username
-    is_mentioned = False
-
-    if bot_username and f"@{bot_username}" in text:
-        is_mentioned = True
-        text = text.replace(f"@{bot_username}", "").strip()
-    elif message.reply_to_message and message.reply_to_message.from_user.id == context.bot.id:
-        is_mentioned = True
-
-    # 1. BOT ETİKETLENDİYSE -> ZEKİ ASİSTAN MODU
-    if is_mentioned:
-        if not text:
-            text = "Nasıl yardımcı olabilirim?"
-
-        logger.info("AI Assistant Request: %s", text)
-
-        ai_response = ask_openai(ASSISTANT_PROMPT, text)
-
-        if ai_response:
-            await message.reply_text(ai_response)
-        return
-
-    # 2. BOT ETİKETLENMEDİYSE -> C2 PROFESYONEL ÇEVİRİ (TÜRKÇE - RUSÇA)
-    logger.info("Translation request: %s", text)
-
-    translation = ask_openai(TRANSLATION_PROMPT, text)
-
-    if translation is None or not translation:
-        return
-
-    await message.reply_text(
-        translation,
-        disable_web_page_preview=True,
-    )
-
-
-# =========================================================
-# ERROR HANDLER
-# =========================================================
-
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    logger.error("Telegram Error: %s", context.error, exc_info=True)
-
+    # Otomatik Hoş Geldin Mesajı
+    if update.message.new_chat_members:
+        for new_member in update.message.new_chat_members:
+            welcome_text = (
+                f"🎉 **Aramıza Hoş Geldin {new_member.first_name}!**\n\n"
+                f"Sohbet ederek seviye atlayabilir, `/profil` yazarak durumunu görebilirsin."
+            )
+            await update.effective_message.reply_text(welcome_text, parse_mode="Markdown")
 
 # =========================================================
 # MAIN
@@ -333,18 +246,23 @@ def main():
     if not TELEGRAM_BOT_TOKEN:
         raise RuntimeError("TELEGRAM_BOT_TOKEN bulunamadı!")
 
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY bulunamadı!")
+    init_db()
 
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
-    app.add_handler(CommandHandler("hakkinda", about_handler))
-    app.add_handler(MessageHandler(filters.TEXT, handle_message))
-    app.add_error_handler(error_handler)
+    # Komutlar
+    app.add_handler(CommandHandler("profil", profile_handler))
+    app.add_handler(CommandHandler("cuzdan", cuzdan_handler))
+    app.add_handler(CommandHandler("yazitura", yazitura_handler))
+    app.add_handler(CommandHandler("lakap", lakap_handler))
+    app.add_handler(CommandHandler("mahkeme", mahkeme_handler))
+    app.add_handler(CommandHandler("fal", fal_handler))
 
-    logger.info("🤖 Viyana AI zeki asistan ve profesyonel çeviri botu aktif!")
+    # Mesaj dinleyici
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
+
+    logger.info("🤖 Viyana AI Bot Aktif!")
     app.run_polling(drop_pending_updates=True)
-
 
 if __name__ == "__main__":
     main()
