@@ -4,7 +4,7 @@ import random
 import sqlite3
 import time
 import asyncio
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 )
@@ -423,29 +423,31 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if lang == "ru":
         msg = (
-            "🤖 **Добро пожаловать в Viyana Bot!**\n\n"
-            "Я поддерживаю автоматический перевод и двухязычные команды!\n"
-            "• /oyun — Начать словесную игру\n"
-            "• /mahkeme — Судебный процесс\n"
-            "• /burc <знак> — Гороскоп\n"
-            "• /profil — Ваш профиль\n"
-            "• /liderlik — Таблица лидеров\n"
+            "🤖 **Добро пожаловать в Viyana AI!**\n\n"
+            "Автоперевод + ИИ-ассистент активны.\n\n"
+            "📌 Популярные команды:\n"
+            "• /viana <вопрос> — Чат с ИИ\n"
+            "• /burc kova — Гороскоп\n"
+            "• /oyun — Игра в слова\n"
             "• /gunluk — Ежедневный бонус\n"
+            "• /coin — Баланс\n"
+            "• /help — Все команды\n"
             "• /hakkinda — О боте\n\n"
-            "🌐 **Автоперевод:** Любое сообщение в группе автоматически переводится (TR ⇆ RU)!"
+            "🌐 Сообщения автоматически переводятся (TR ⇆ RU)"
         )
     else:
         msg = (
-            "🤖 **Viyana Bot'a Hoş Geldiniz!**\n\n"
-            "Gelişmiş çift dil ve otomatik çeviri sistemim aktif!\n"
-            "• /oyun — Kelime tahmin oyunu başlatır\n"
-            "• /mahkeme — Mahkeme simülasyonu\n"
-            "• /burc <burç> — Günlük burç yorumu\n"
-            "• /profil — Profiliniz ve seviyeniz\n"
-            "• /liderlik — Liderlik tablosu\n"
-            "• /gunluk — Günlük XP ve coin ödülü\n"
+            "🤖 **Viyana AI'ya Hoş Geldiniz!**\n\n"
+            "Otomatik çeviri + Yapay Zeka asistanı aktif.\n\n"
+            "📌 Popüler komutlar:\n"
+            "• /viana <soru> — AI ile sohbet et\n"
+            "• /burc kova — Burç yorumu\n"
+            "• /oyun — Kelime oyunu\n"
+            "• /gunluk — Günlük ödül\n"
+            "• /coin — Bakiyen\n"
+            "• /help — Tüm komutlar\n"
             "• /hakkinda — Bot hakkında\n\n"
-            "🌐 **Otomatik Çeviri:** Gruba yazılan her mesaj otomatik çevrilir (TR ⇆ RU)!"
+            "🌐 Mesajlar otomatik çevrilir (TR ⇆ RU)"
         )
     
     await update.message.reply_text(msg, parse_mode="Markdown")
@@ -545,27 +547,148 @@ async def mahkeme_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(karar, parse_mode="Markdown")
 
 async def burc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    lang = detect_language(update.message.text)
-    
-    yorumlar_tr = [
-        "Bugün enerjiniz çok yüksek, sürpriz gelişmelere hazır olun!",
-        "Maddi konularda dikkatli olmanız gereken bir gün.",
-        "Aşk hayatınızda hareketlenme var, gözlerinizi açık tutun!",
-        "Kariyerinizde yeni fırsatlar kapınızı çalabilir."
-    ]
-    yorumlar_ru = [
-        "Сегодня у вас отличная энергия, будьте готовы к сюрпризам!",
-        "Будьте осторожны с финансами сегодня.",
-        "В личной жизни намечаются перемены, держите глаза открытыми!",
-        "В карьере могут открыться новые возможности."
-    ]
+    lang = detect_language(update.message.text if update.message else "")
+    args = context.args
+    burc_adi = " ".join(args).strip().lower() if args else ""
 
-    yorum = random.choice(yorumlar_ru if lang == "ru" else yorumlar_tr)
-    
-    if lang == "ru":
-        await update.message.reply_text(f"🔮 **Гороскоп на сегодня:**\n{yorum}", parse_mode="Markdown")
+    # Burç isimleri eşleştirme
+    burclar = {
+        "koc": "Koç", "koç": "Koç", "aries": "Koç",
+        "boga": "Boğa", "boğa": "Boğa", "taurus": "Boğa",
+        "ikizler": "İkizler", "gemini": "İkizler",
+        "yengec": "Yengeç", "yengeç": "Yengeç", "cancer": "Yengeç",
+        "aslan": "Aslan", "leo": "Aslan",
+        "basak": "Başak", "başak": "Başak", "virgo": "Başak",
+        "terazi": "Terazi", "libra": "Terazi",
+        "akrep": "Akrep", "scorpio": "Akrep",
+        "yay": "Yay", "sagittarius": "Yay",
+        "oglak": "Oğlak", "oğlak": "Oğlak", "capricorn": "Oğlak",
+        "kova": "Kova", "aquarius": "Kova",
+        "balik": "Balık", "balık": "Balık", "pisces": "Balık",
+    }
+
+    # Rastgele yorum havuzları (burç özel + genel)
+    yorumlar_tr = {
+        "Koç": [
+            "Bugün enerjiniz çok yüksek Koç! Cesur adımlar atmaya hazır olun.",
+            "Rekabet sizin alanınız, bugün öne çıkabilirsiniz.",
+            "Aşkta ateşli bir gün sizi bekliyor, duygularınızı açıkça ifade edin."
+        ],
+        "Boğa": [
+            "Maddi konularda dikkatli olun Boğa, sabırlı olmanın zamanı.",
+            "Konfor alanınızdan çıkmak size iyi gelebilir.",
+            "Lezzetli yemekler ve rahatlık bugün sizi mutlu edecek."
+        ],
+        "İkizler": [
+            "İletişim gücünüz zirvede İkizler, yeni insanlarla tanışın.",
+            "Zihniniz çok aktif, fikirlerinizi not alın.",
+            "Kısa yolculuklar veya mesajlaşmalar gününüze renk katacak."
+        ],
+        "Yengeç": [
+            "Duygusal derinliklerinizde yüzüyorsunuz Yengeç, eviniz sığınak olsun.",
+            "Aile ve sevdiklerinizle vakit geçirmek size iyi gelecek.",
+            "Sezgileriniz çok güçlü, iç sesinizi dinleyin."
+        ],
+        "Aslan": [
+            "Sahneye çıkma zamanı Aslan! Işıltınız herkesi etkileyecek.",
+            "Liderlik özellikleriniz bugün öne çıkıyor.",
+            "Romantik sürprizlere açık olun, kalbinizi dinleyin."
+        ],
+        "Başak": [
+            "Detaylara odaklanın Başak, mükemmeliyetçiliğiniz işe yarayacak.",
+            "Sağlık ve düzen konularında kendinize zaman ayırın.",
+            "Pratik çözümleriniz çevrenizdekileri etkileyecek."
+        ],
+        "Terazi": [
+            "Denge ve uyum arayışınız bugün karşılık bulacak Terazi.",
+            "İlişkilerinizde diplomasi sizin silahınız.",
+            "Güzellik ve sanat sizi motive edecek."
+        ],
+        "Akrep": [
+            "Derin dönüşümler zamanı Akrep, eskiyi bırakın.",
+            "Tutkularınız güçlü, kontrolü elden bırakmayın.",
+            "Gizemli bir çekim alanı yaratıyorsunuz."
+        ],
+        "Yay": [
+            "Özgürlük ve macera sizi çağırıyor Yay!",
+            "Yeni bilgilere açık olun, ufkunuz genişliyor.",
+            "İyimserliğiniz çevrenize bulaşıcı olacak."
+        ],
+        "Oğlak": [
+            "Hedeflerinize emin adımlarla ilerleyin Oğlak.",
+            "Disiplin ve sorumluluk bugün sizi ödüllendirecek.",
+            "Kariyerde önemli bir adım atabilirsiniz."
+        ],
+        "Kova": [
+            "Yenilikçi fikirleriniz parlıyor Kova! Farklı olun.",
+            "Arkadaşlıklar ve topluluklar size güç verecek.",
+            "Teknoloji ve gelecek odaklı düşünceler sizi motive ediyor.",
+            "Bugün enerjiniz çok yüksek Kova, sürpriz gelişmelere hazır olun!",
+            "Bağımsızlığınızı koruyun, kimse sizi sınırlayamasın."
+        ],
+        "Balık": [
+            "Hayal gücünüz ve sezgileriniz zirvede Balık.",
+            "Sanat, müzik veya rüyalar size ilham verecek.",
+            "Duygusal bağlarınız güçleniyor, empati yapın."
+        ],
+        "genel": [
+            "Bugün enerjiniz çok yüksek, sürpriz gelişmelere hazır olun!",
+            "Maddi konularda dikkatli olmanız gereken bir gün.",
+            "Aşk hayatınızda hareketlenme var, gözlerinizi açık tutun!",
+            "Kariyerinizde yeni fırsatlar kapınızı çalabilir.",
+            "İç sesinizi dinleyin, sezgileriniz sizi doğru yönlendirecek."
+        ]
+    }
+
+    yorumlar_ru = {
+        "Koç": ["Сегодня ваша энергия на пике, Овен! Будьте смелыми.", "Конкуренция — ваша стихия сегодня."],
+        "Boğa": ["Будьте осторожны с финансами, Телец. Терпение — ваш ключ."],
+        "İkizler": ["Ваша коммуникация на высоте, Близнецы. Знакомьтесь с новыми людьми."],
+        "Yengeç": ["Эмоциональная глубина — ваша сила сегодня, Рак."],
+        "Aslan": ["Время выйти на сцену, Лев! Вы сияете."],
+        "Başak": ["Внимание к деталям принесёт успех, Дева."],
+        "Terazi": ["Баланс и гармония рядом, Весы."],
+        "Akrep": ["Глубокая трансформация ждёт вас, Скорпион."],
+        "Yay": ["Свобода и приключения зовут, Стрелец!"],
+        "Oğlak": ["Целеустремленность приведёт к успеху, Козерог."],
+        "Kova": [
+            "Ваши инновационные идеи сияют, Водолей!",
+            "Дружба и сообщество дадут вам силу.",
+            "Сегодня у вас отличная энергия, Водолей — готовьтесь к сюрпризам!"
+        ],
+        "Balık": ["Воображение и интуиция на пике, Рыбы."],
+        "genel": [
+            "Сегодня у вас отличная энергия, будьте готовы к сюрпризам!",
+            "Будьте осторожны с финансами сегодня.",
+            "В личной жизни намечаются перемены, держите глаза открытыми!",
+            "В карьере могут открыться новые возможности."
+        ]
+    }
+
+    if burc_adi and burc_adi in burclar:
+        burc_key = burclar[burc_adi]
+        pool = (yorumlar_ru if lang == "ru" else yorumlar_tr).get(burc_key, yorumlar_tr["genel"])
+        yorum = random.choice(pool)
+        if lang == "ru":
+            await update.message.reply_text(f"🔮 **Гороскоп — {burc_key}:**\n{yorum}", parse_mode="Markdown")
+        else:
+            await update.message.reply_text(f"🔮 **Günlük Burç — {burc_key}:**\n{yorum}", parse_mode="Markdown")
     else:
-        await update.message.reply_text(f"🔮 **Günlük Burç Yorumunuz:**\n{yorum}", parse_mode="Markdown")
+        # Argüman yoksa veya geçersizse genel + kullanım bilgisi
+        pool = yorumlar_ru["genel"] if lang == "ru" else yorumlar_tr["genel"]
+        yorum = random.choice(pool)
+        if lang == "ru":
+            await update.message.reply_text(
+                f"🔮 **Гороскоп на сегодня:**\n{yorum}\n\n"
+                f"_Использование: /burc kova  |  /burc aslan_",
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text(
+                f"🔮 **Günlük Burç Yorumunuz:**\n{yorum}\n\n"
+                f"_Kullanım: /burc kova  |  /burc aslan  |  /burc terazi_",
+                parse_mode="Markdown"
+            )
 
 async def liderlik_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = detect_language(update.message.text)
@@ -767,6 +890,399 @@ async def hakkinda_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(msg, parse_mode="Markdown")
 
+
+# =========================================================
+# EK KOMUTLAR
+# =========================================================
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = detect_language(update.message.text if update.message else "")
+    if lang == "ru":
+        msg = (
+            "📖 **Список команд Viyana AI**\n\n"
+            "• /start — Главное меню\n"
+            "• /viana <вопрос> — Спросить ИИ-ассистента\n"
+            "• /help — Эта справка\n"
+            "• /oyun или /kelime — Игра в слова\n"
+            "• /hakkinda — О боте\n"
+            "• /coin — Баланс монет\n"
+            "• /seviye или /profil — Уровень и XP\n"
+            "• /gunluk — Ежедневный бонус\n"
+            "• /liderlik — Таблица лидеров\n"
+            "• /das — Орёл/решка (ставка)\n"
+            "• /burc <знак> — Гороскоп (пример: /burc kova)\n"
+            "• /mahkeme — Суд (ответьте на сообщение)\n"
+            "• /giybet — Случайные сплетни\n"
+            "• /lakaptak — Случайный никнейм\n"
+            "• /ban /sus — Только для админов\n"
+            "• /panel — Панель управления группой"
+        )
+    else:
+        msg = (
+            "📖 **Viyana AI Komut Listesi**\n\n"
+            "• /start — Ana menü\n"
+            "• /viana <soru> — Yapay zeka asistanına sor\n"
+            "• /help — Bu yardım menüsü\n"
+            "• /oyun veya /kelime — Kelime tahmin oyunu\n"
+            "• /hakkinda — Bot hakkında\n"
+            "• /coin — Coin bakiyen\n"
+            "• /seviye veya /profil — Seviye, XP ve unvan\n"
+            "• /gunluk — Günlük ödül\n"
+            "• /liderlik — Liderlik tablosu\n"
+            "• /das — Yazı tura / coin bahis\n"
+            "• /burc <burç> — Burç yorumu (örnek: /burc kova)\n"
+            "• /mahkeme — Mahkeme (bir mesaja yanıt vererek)\n"
+            "• /giybet — Rastgele dedikodu\n"
+            "• /lakaptak — Rastgele lakap\n"
+            "• /ban /sus — Sadece yöneticiler\n"
+            "• /panel — Grup yönetim paneli"
+        )
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+
+async def viana_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Yapay zeka sohbet / soru-cevap"""
+    if not client:
+        await update.message.reply_text("⚠️ OpenAI API anahtarı tanımlı değil.")
+        return
+
+    soru = " ".join(context.args).strip() if context.args else ""
+    if not soru:
+        # Reply edilen mesaj varsa onu al
+        if update.message.reply_to_message and update.message.reply_to_message.text:
+            soru = update.message.reply_to_message.text
+        else:
+            await update.message.reply_text(
+                "💬 **Viyana AI Asistan**\n\n"
+                "Kullanım: `/viana merhaba nasılsın?`\n"
+                "veya bir mesaja yanıt verip `/viana` yaz.",
+                parse_mode="Markdown"
+            )
+            return
+
+    try:
+        await update.message.chat.send_action(action="typing")
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Sen Viyana AI adında eğlenceli, yardımsever ve zeki bir Telegram bot asistanısın. "
+                        "Türkçe ve Rusça konuşabiliyorsun. Kısa, samimi ve esprili cevaplar ver. "
+                        "Ehed tarafından tasarlandın. Çok uzun cevaplar verme."
+                    )
+                },
+                {"role": "user", "content": soru}
+            ],
+            temperature=0.7,
+            max_tokens=600
+        )
+        cevap = response.choices[0].message.content.strip()
+        await update.message.reply_text(f"🤖 **Viyana AI:**\n{cevap}", parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Viana AI hatası: {e}")
+        await update.message.reply_text("⚠️ Şu an cevap veremiyorum, biraz sonra tekrar dene.")
+
+
+async def coin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    lang = detect_language(update.message.text if update.message else "")
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT coins FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    coins = row[0] if row else 100
+    if lang == "ru":
+        await update.message.reply_text(f"🪙 **Ваш баланс:** {coins} монет", parse_mode="Markdown")
+    else:
+        await update.message.reply_text(f"🪙 **Coin Bakiyen:** {coins} coin", parse_mode="Markdown")
+
+
+async def seviye_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # profil ile aynı
+    await profil_command(update, context)
+
+
+async def das_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Yazı tura / coin bahis"""
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    lang = detect_language(update.message.text if update.message else "")
+    args = context.args
+
+    bahis = 10
+    secim = None
+    if args:
+        try:
+            bahis = int(args[0])
+        except ValueError:
+            secim = args[0].lower()
+            if len(args) > 1:
+                try:
+                    bahis = int(args[1])
+                except ValueError:
+                    pass
+
+    if secim not in ("yazi", "yazı", "tura", "орёл", "решка", "yazi", "tura"):
+        secim = random.choice(["yazi", "tura"])
+
+    # Normalize
+    if secim in ("yazi", "yazı", "орёл"):
+        secim = "yazi"
+    else:
+        secim = "tura"
+
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT coins FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    if row is None:
+        cursor.execute(
+            "INSERT INTO users (user_id, chat_id, xp, level, coins) VALUES (?, ?, 0, 1, 100)",
+            (user_id, chat_id)
+        )
+        coins = 100
+    else:
+        coins = row[0]
+    conn.commit()
+    conn.close()
+
+    if coins < bahis:
+        if lang == "ru":
+            await update.message.reply_text(f"💸 Недостаточно монет! У вас {coins}.")
+        else:
+            await update.message.reply_text(f"💸 Yeterli coinin yok! Bakiyen: {coins}")
+        return
+
+    sonuc = random.choice(["yazi", "tura"])
+    kazandi = (sonuc == secim)
+
+    if kazandi:
+        add_xp_and_coins(user_id, chat_id, xp_amount=5, coin_amount=bahis)
+        if lang == "ru":
+            await update.message.reply_text(
+                f"🎲 Выпало: **{'орёл' if sonuc=='yazi' else 'решка'}**\n"
+                f"✅ Вы выиграли +{bahis} монет!",
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text(
+                f"🎲 Sonuç: **{'Yazı' if sonuc=='yazi' else 'Tura'}**\n"
+                f"✅ Tebrikler! +{bahis} coin kazandın!",
+                parse_mode="Markdown"
+            )
+    else:
+        # kaybettir
+        conn = sqlite3.connect("database.db")
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET coins = coins - ? WHERE user_id = ?", (bahis, user_id))
+        conn.commit()
+        conn.close()
+        if lang == "ru":
+            await update.message.reply_text(
+                f"🎲 Выпало: **{'орёл' if sonuc=='yazi' else 'решка'}**\n"
+                f"❌ Вы проиграли {bahis} монет.",
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text(
+                f"🎲 Sonuç: **{'Yazı' if sonuc=='yazi' else 'Tura'}**\n"
+                f"❌ Maalesef {bahis} coin kaybettin.",
+                parse_mode="Markdown"
+            )
+
+
+async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = detect_language(update.message.text if update.message else "")
+    user = update.effective_user
+    chat = update.effective_chat
+
+    if chat.type == "private":
+        await update.message.reply_text("Bu komut sadece gruplarda çalışır.")
+        return
+
+    # Yönetici kontrolü
+    try:
+        member = await chat.get_member(user.id)
+        if member.status not in ("administrator", "creator"):
+            if lang == "ru":
+                await update.message.reply_text("⛔ Только администраторы могут использовать эту команду.")
+            else:
+                await update.message.reply_text("⛔ Bu komutu sadece yöneticiler kullanabilir.")
+            return
+    except Exception:
+        await update.message.reply_text("Yetki kontrolü yapılamadı.")
+        return
+
+    target = None
+    if update.message.reply_to_message:
+        target = update.message.reply_to_message.from_user
+    elif context.args:
+        # basit ID denemesi
+        try:
+            target_id = int(context.args[0])
+            target = await context.bot.get_chat(target_id)
+        except Exception:
+            pass
+
+    if not target:
+        if lang == "ru":
+            await update.message.reply_text("Использование: ответьте на сообщение пользователя командой /ban")
+        else:
+            await update.message.reply_text("Kullanım: Yasaklamak istediğin kişinin mesajına yanıt verip /ban yaz.")
+        return
+
+    try:
+        await chat.ban_member(target.id)
+        if lang == "ru":
+            await update.message.reply_text(f"🚫 Пользователь {target.first_name} забанен.")
+        else:
+            await update.message.reply_text(f"🚫 {target.first_name} gruptan yasaklandı.")
+    except Exception as e:
+        await update.message.reply_text(f"Ban işlemi başarısız: {e}")
+
+
+async def sus_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Kullanıcıyı sustur (mute)"""
+    lang = detect_language(update.message.text if update.message else "")
+    user = update.effective_user
+    chat = update.effective_chat
+
+    if chat.type == "private":
+        await update.message.reply_text("Bu komut sadece gruplarda çalışır.")
+        return
+
+    try:
+        member = await chat.get_member(user.id)
+        if member.status not in ("administrator", "creator"):
+            if lang == "ru":
+                await update.message.reply_text("⛔ Только администраторы.")
+            else:
+                await update.message.reply_text("⛔ Bu komutu sadece yöneticiler kullanabilir.")
+            return
+    except Exception:
+        return
+
+    target = None
+    if update.message.reply_to_message:
+        target = update.message.reply_to_message.from_user
+
+    if not target:
+        await update.message.reply_text("Susturmak istediğin kişinin mesajına yanıt verip /sus yaz.")
+        return
+
+    from datetime import datetime, timedelta, timezone
+    until = datetime.now(timezone.utc) + timedelta(hours=1)
+
+    try:
+        await context.bot.restrict_chat_member(
+            chat_id=chat.id,
+            user_id=target.id,
+            permissions=ChatPermissions(can_send_messages=False),
+            until_date=until
+        )
+        if lang == "ru":
+            await update.message.reply_text(f"🔇 {target.first_name} замьючен на 1 час.")
+        else:
+            await update.message.reply_text(f"🔇 {target.first_name} 1 saatliğine susturuldu.")
+    except Exception as e:
+        await update.message.reply_text(f"Susturma başarısız: {e}")
+
+
+async def panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = detect_language(update.message.text if update.message else "")
+    if lang == "ru":
+        msg = (
+            "🛠 **Панель управления группой**\n\n"
+            "• /ban — Забанить пользователя (ответьте на сообщение)\n"
+            "• /sus — Замьютить на 1 час\n"
+            "• /liderlik — Топ участников\n"
+            "• /mahkeme — Судебный розыгрыш\n\n"
+            "_Только администраторы могут использовать moderation команды._"
+        )
+    else:
+        msg = (
+            "🛠 **Grup Yönetim Paneli**\n\n"
+            "• /ban — Kullanıcıyı yasakla (mesaja yanıt ver)\n"
+            "• /sus — 1 saat sustur\n"
+            "• /liderlik — Liderlik tablosu\n"
+            "• /mahkeme — Mahkeme simülasyonu\n\n"
+            "_Moderasyon komutlarını sadece yöneticiler kullanabilir._"
+        )
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+
+async def giybet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = detect_language(update.message.text if update.message else "")
+    target_name = None
+    if update.message.reply_to_message:
+        target_name = update.message.reply_to_message.from_user.first_name
+    elif context.args:
+        target_name = " ".join(context.args)
+    else:
+        target_name = update.effective_user.first_name
+
+    dedikodular_tr = [
+        f"📢 Duyduk ki {target_name} dün gece çok geç saatte online'mış...",
+        f"🙊 {target_name} birine aşık olmuş ama kimseye söylemiyormuş!",
+        f"👀 Grupta dolaşan söylentiye göre {target_name} gizli bir yeteneğe sahipmiş.",
+        f"🤭 {target_name} son zamanlarda çok değişmiş, ne oldu acaba?",
+        f"🔥 {target_name} hakkında bir sır var ama ben söylemem...",
+        f"😏 {target_name} dün biriyle özel sohbet ediyormuş, kim olabilir?",
+    ]
+    dedikodular_ru = [
+        f"📢 Говорят, {target_name} вчера очень поздно был(а) онлайн...",
+        f"🙊 {target_name} в кого-то влюблён(а), но никому не говорит!",
+        f"👀 По слухам у {target_name} есть тайный талант.",
+        f"🤭 {target_name} в последнее время сильно изменился(ась)...",
+        f"🔥 Об {target_name} есть секрет, но я не скажу...",
+    ]
+
+    dedikodu = random.choice(dedikodular_ru if lang == "ru" else dedikodular_tr)
+    await update.message.reply_text(dedikodu)
+
+
+async def lakaptak_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = detect_language(update.message.text if update.message else "")
+    name = update.effective_user.first_name
+    if update.message.reply_to_message:
+        name = update.message.reply_to_message.from_user.first_name
+
+    lakaplar_tr = [
+        f"{name} — Efsane Canavar",
+        f"{name} — Çılgın Fırtına",
+        f"{name} — Sessiz Ninja",
+        f"{name} — Kral/Kraliçe",
+        f"{name} — Komik Deha",
+        f"{name} — Gece Kuşu",
+        f"{name} — Ateş Topu",
+        f"{name} — Buz Prensi/Prensesi",
+        f"{name} — Gizli Kahraman",
+        f"{name} — Kaos Ustası",
+    ]
+    lakaplar_ru = [
+        f"{name} — Легендарный Монстр",
+        f"{name} — Безумный Шторм",
+        f"{name} — Тихий Ниндзя",
+        f"{name} — Король/Королева",
+        f"{name} — Гений Юмора",
+        f"{name} — Ночная Птица",
+    ]
+
+    lakap = random.choice(lakaplar_ru if lang == "ru" else lakaplar_tr)
+    if lang == "ru":
+        await update.message.reply_text(f"🏷 **Новый ник:** {lakap}", parse_mode="Markdown")
+    else:
+        await update.message.reply_text(f"🏷 **Yeni Lakabın:** {lakap}", parse_mode="Markdown")
+
+
+async def kelime_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Alias for /oyun"""
+    await oyun_command(update, context)
+
+
 # =========================================================
 # MAIN
 # =========================================================
@@ -785,14 +1301,25 @@ def main():
 
     # Komutlar
     app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("profil", profil_command))
-    app.add_handler(CommandHandler("gunluk", gunluk_command))
-    app.add_handler(CommandHandler("mahkeme", mahkeme_command))
-    app.add_handler(CommandHandler("burc", burc_command))
-    app.add_handler(CommandHandler("liderlik", liderlik_command))
-    app.add_handler(CommandHandler("oyun", oyun_command))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("viana", viana_command))
     app.add_handler(CommandHandler("hakkinda", hakkinda_command))
     app.add_handler(CommandHandler("about", hakkinda_command))
+    app.add_handler(CommandHandler("profil", profil_command))
+    app.add_handler(CommandHandler("seviye", seviye_command))
+    app.add_handler(CommandHandler("coin", coin_command))
+    app.add_handler(CommandHandler("gunluk", gunluk_command))
+    app.add_handler(CommandHandler("liderlik", liderlik_command))
+    app.add_handler(CommandHandler("oyun", oyun_command))
+    app.add_handler(CommandHandler("kelime", kelime_command))
+    app.add_handler(CommandHandler("burc", burc_command))
+    app.add_handler(CommandHandler("mahkeme", mahkeme_command))
+    app.add_handler(CommandHandler("das", das_command))
+    app.add_handler(CommandHandler("giybet", giybet_command))
+    app.add_handler(CommandHandler("lakaptak", lakaptak_command))
+    app.add_handler(CommandHandler("panel", panel_command))
+    app.add_handler(CommandHandler("ban", ban_command))
+    app.add_handler(CommandHandler("sus", sus_command))
 
     # Buton Dinleyici
     app.add_handler(CallbackQueryHandler(button_click))
