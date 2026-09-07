@@ -160,6 +160,7 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = update.message.text.strip()
 
+    # Komutları ve çok kısa mesajları atla
     if text.startswith("/") or len(text) < 3:
         return
 
@@ -176,7 +177,7 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         targets = [("tr", "🇹🇷"), ("de", "🇩🇪")]
     elif detected == "de":
         targets = [("tr", "🇹🇷"), ("ru", "🇷🇺")]
-    else:  # en veya bilinmeyen
+    else:
         targets = [("tr", "🇹🇷"), ("ru", "🇷🇺"), ("de", "🇩🇪")]
 
     tasks = [translate_text(text, lang) for lang, _ in targets]
@@ -209,7 +210,8 @@ def main():
     app.add_handler(CommandHandler("hakkinda", hakkinda_command))
     app.add_handler(CommandHandler("about", hakkinda_command))
 
-    app.add_handler(MessageHandler(filters.TEXT & (\~filters.COMMAND), handle_messages))
+    # \~ işareti kullanılmadı → SyntaxError riski yok
+    app.add_handler(MessageHandler(filters.TEXT, handle_messages))
 
     logger.info("Viyana AI (Sadece Çeviri) başarıyla başlatıldı!")
     app.run_polling()
