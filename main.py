@@ -27,7 +27,6 @@ client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 # =========================================================
 
 def detect_language(text: str) -> str:
-    """Basit ama etkili dil tespiti"""
     text_lower = text.lower()
 
     # Rusça (Kiril)
@@ -35,16 +34,26 @@ def detect_language(text: str) -> str:
     if any(c in cyrillic for c in text_lower):
         return "ru"
 
-    # Almanca (umlaut + tipik kelimeler)
+    # Almanca
     german_chars = set("äöüß")
-    german_words = {"und", "der", "die", "das", "ich", "nicht", "ist", "ein", "eine", "mit", "auf", "für", "von", "zu", "auch", "wie", "aber", "oder", "wenn", "weil", "dass", "schon", "noch", "sehr", "mehr", "kann", "haben", "sein", "werden", "machen", "gehen", "kommen", "sehen", "wissen", "sagen", "geben", "nehmen", "finden", "denken", "glauben", "heißen", "bleiben", "liegen", "stehen", "sitzen", "fahren", "laufen", "sprechen", "schreiben", "lesen", "hören", "fühlen", "leben", "sterben", "arbeiten", "spielen", "lernen", "lehren", "verstehen", "erklären", "fragen", "antworten", "helfen", "brauchen", "mögen", "lieben", "hassen", "wollen", "sollen", "müssen", "dürfen", "können"}
+    german_words = {
+        "und", "der", "die", "das", "ich", "nicht", "ist", "ein", "eine",
+        "mit", "auf", "für", "von", "zu", "auch", "wie", "aber", "oder",
+        "wenn", "weil", "dass", "schon", "noch", "sehr", "mehr", "kann",
+        "haben", "sein", "werden", "machen", "gehen", "kommen"
+    }
     if any(c in german_chars for c in text_lower) or any(w in text_lower.split() for w in german_words):
         return "de"
 
-    # İngilizce (yaygın kelimeler)
-    english_words = {"the", "and", "is", "are", "was", "were", "have", "has", "had", "do", "does", "did", "will", "would", "can", "could", "should", "must", "may", "might", "this", "that", "these", "those", "what", "which", "who", "whom", "whose", "where", "when", "why", "how", "not", "no", "yes", "please", "thank", "thanks", "hello", "hi", "hey", "good", "bad", "very", "much", "many", "some", "any", "all", "every", "each", "other", "another", "more", "most", "less", "least", "few", "little", "big", "small", "new", "old", "young", "first", "last", "next", "previous", "same", "different", "important", "interesting", "beautiful", "happy", "sad", "angry", "tired", "hungry", "thirsty"}
+    # İngilizce
+    english_words = {
+        "the", "and", "is", "are", "was", "were", "have", "has", "had",
+        "do", "does", "did", "will", "would", "can", "could", "should",
+        "this", "that", "what", "which", "who", "where", "when", "why",
+        "how", "not", "yes", "please", "thank", "hello", "hi", "good"
+    }
     words = set(text_lower.split())
-    if len(words & english_words) >= 2 or (len(text) > 15 and any(w in words for w in ["the", "and", "is", "are", "you", "i", "we", "they"])):
+    if len(words & english_words) >= 2:
         return "en"
 
     # Varsayılan Türkçe
@@ -56,7 +65,6 @@ def detect_language(text: str) -> str:
 # =========================================================
 
 async def translate_text(text: str, target_lang: str) -> str:
-    """Ana dili gibi, profesyonel, uydurmasız çeviri"""
     if not client:
         return "⚠️ OpenAI API anahtarı tanımlı değil."
 
@@ -75,7 +83,7 @@ async def translate_text(text: str, target_lang: str) -> str:
         f"- Translate ONLY the meaning, nothing else.\n"
         f"- Do NOT add explanations, notes, or extra sentences.\n"
         f"- Do NOT invent or change the meaning.\n"
-        f"- Keep the original tone, style and formality.\n"
+        f"- Keep the original tone and style.\n"
         f"- Return ONLY the pure translation."
     )
 
@@ -86,7 +94,7 @@ async def translate_text(text: str, target_lang: str) -> str:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": text}
             ],
-            temperature=0.1,          # düşük = daha doğru, az yaratıcı
+            temperature=0.1,
             max_tokens=1200
         )
         return response.choices[0].message.content.strip()
@@ -110,8 +118,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• Rusça yaz → Türkçe + Almanca\n"
         f"• Almanca yaz → Türkçe + Rusça\n"
         f"• İngilizce yaz → Türkçe + Rusça + Almanca\n\n"
-        f"Sadece mesaj yaz, gerisini ben hallederim.\n"
-        f"Çeviriler ana dili gibi doğal ve profesyoneldir."
+        f"Sadece mesaj yaz, gerisini ben hallederim."
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
 
@@ -144,7 +151,7 @@ async def hakkinda_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================================================
-# MESAJ DİNLEYİCİ (TEK GÖREV: ÇEVİRİ)
+# MESAJ DİNLEYİCİ
 # =========================================================
 
 async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -153,35 +160,28 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = update.message.text.strip()
 
-    # Komutları ve çok kısa mesajları atla
     if text.startswith("/") or len(text) < 3:
         return
 
     if not client:
-        await update.message.reply_text("⚠️ OpenAI API anahtarı tanımlı değil. Çeviri yapılamıyor.")
+        await update.message.reply_text("⚠️ OpenAI API anahtarı tanımlı değil.")
         return
 
     detected = detect_language(text)
-    logger.info(f"Tespit edilen dil: {detected} | Mesaj: {text[:50]}...")
+    logger.info(f"Dil: {detected} | Mesaj: {text[:60]}...")
 
-    # Hangi dillere çevrileceğini belirle
     if detected == "tr":
         targets = [("de", "🇩🇪"), ("ru", "🇷🇺")]
     elif detected == "ru":
         targets = [("tr", "🇹🇷"), ("de", "🇩🇪")]
     elif detected == "de":
         targets = [("tr", "🇹🇷"), ("ru", "🇷🇺")]
-    elif detected == "en":
-        targets = [("tr", "🇹🇷"), ("ru", "🇷🇺"), ("de", "🇩🇪")]
-    else:
-        # Bilinmeyen → 3 dile çevir
+    else:  # en veya bilinmeyen
         targets = [("tr", "🇹🇷"), ("ru", "🇷🇺"), ("de", "🇩🇪")]
 
-    # Çevirileri paralel yap (hızlı olsun)
     tasks = [translate_text(text, lang) for lang, _ in targets]
     results = await asyncio.gather(*tasks)
 
-    # Cevabı oluştur
     lines = []
     for (lang, flag), translation in zip(targets, results):
         lines.append(f"{flag} **{translation}**")
@@ -209,7 +209,6 @@ def main():
     app.add_handler(CommandHandler("hakkinda", hakkinda_command))
     app.add_handler(CommandHandler("about", hakkinda_command))
 
-    # Sadece metin mesajlarını dinle
     app.add_handler(MessageHandler(filters.TEXT & (\~filters.COMMAND), handle_messages))
 
     logger.info("Viyana AI (Sadece Çeviri) başarıyla başlatıldı!")
