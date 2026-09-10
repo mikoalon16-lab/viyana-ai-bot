@@ -40,6 +40,13 @@ API_TIMEOUT = 30
 
 
 # =========================================================
+# BOT STATE (ON / OFF)
+# =========================================================
+
+IS_BOT_ACTIVE = True
+
+
+# =========================================================
 # LOGGING
 # =========================================================
 
@@ -529,6 +536,40 @@ async def translate_text(
 
 
 # =========================================================
+# ON / OFF COMMANDS
+# =========================================================
+
+async def on_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    global IS_BOT_ACTIVE
+    IS_BOT_ACTIVE = True
+    logger.info("Bot kullanıcı tarafından AKTİF edildi.")
+
+    if update.message:
+        await update.message.reply_text(
+            "🟢 *Bot aktif edildi.* Çeviri sistemi çalışıyor.",
+            parse_mode="Markdown",
+        )
+
+
+async def off_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    global IS_BOT_ACTIVE
+    IS_BOT_ACTIVE = False
+    logger.info("Bot kullanıcı tarafından KAPATILDI.")
+
+    if update.message:
+        await update.message.reply_text(
+            "🔴 *Bot kapatıldı.* Yeni mesajlar çevrilmeyecek.",
+            parse_mode="Markdown",
+        )
+
+
+# =========================================================
 # /START
 # =========================================================
 
@@ -544,16 +585,21 @@ async def start_command(
     if update.effective_user:
         name = update.effective_user.first_name or ""
 
+    status_str = "🟢 Aktif" if IS_BOT_ACTIVE else "🔴 Kapalı"
+
     message = (
         f"🤖 *Merhaba {name}!*\n\n"
         f"Ben *Viyana AI* — otomatik çeviri botuyum.\n"
         f"*Ehed* tarafından tasarlandım.\n\n"
+        f"Durum: *{status_str}*\n\n"
         f"🌐 *Otomatik çeviri:*\n\n"
         f"🇹🇷 Türkçe → 🇷🇺 Rusça + 🇩🇪 Almanca\n"
         f"🇷🇺 Rusça → 🇹🇷 Türkçe + 🇩🇪 Almanca\n"
         f"🇩🇪 Almanca → 🇹🇷 Türkçe + 🇷🇺 Rusça\n"
         f"🇬🇧 İngilizce → 🇹🇷 Türkçe + 🇷🇺 Rusça + 🇩🇪 Almanca\n\n"
-        f"Sadece mesajını gönder."
+        f"Açma/Kapama Komutları:\n"
+        f"/on — Botu açar\n"
+        f"/off — Botu kapatır"
     )
 
     await update.message.reply_text(
@@ -583,6 +629,8 @@ async def help_command(
         "🇬🇧 İngilizce → 🇹🇷 + 🇷🇺 + 🇩🇪\n\n"
         "*Komutlar:*\n"
         "/start — Başlat\n"
+        "/on — Çeviriyi Aktif Et\n"
+        "/off — Çeviriyi Kapat\n"
         "/help — Yardım\n"
         "/hakkinda — Hakkında\n"
         "/about — About"
@@ -631,6 +679,9 @@ async def handle_messages(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
+    if not IS_BOT_ACTIVE:
+        return
+
     if not update.message:
         return
 
@@ -748,6 +799,20 @@ def main():
         CommandHandler(
             "start",
             start_command,
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "on",
+            on_command,
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "off",
+            off_command,
         )
     )
 
