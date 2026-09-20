@@ -143,117 +143,34 @@ async def add_usage(input_tokens, output_tokens):
 # LANGUAGE DETECTION
 # =========================================================
 
-CYRILLIC_CHARS = set(
-    "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
-)
+CYRILLIC_CHARS = set("абвгдеёжзийклмнопрстуфхцчшщъыьэюя")
 
 GERMAN_CHARS = set("äöüß")
 
 TURKISH_CHARS = set("çğıöşü")
 
+AZERBAIJANI_CHARS = set("ə")
+
 
 GERMAN_WORDS = {
-    "und",
-    "der",
-    "die",
-    "das",
-    "ich",
-    "nicht",
-    "ist",
-    "ein",
-    "eine",
-    "mit",
-    "auf",
-    "für",
-    "von",
-    "zu",
-    "auch",
-    "wie",
-    "aber",
-    "oder",
-    "wenn",
-    "weil",
-    "dass",
-    "schon",
-    "noch",
-    "sehr",
-    "mehr",
-    "kann",
-    "haben",
-    "sein",
-    "werden",
-    "machen",
-    "gehen",
-    "kommen",
-}
-
-
-ENGLISH_WORDS = {
-    "the",
-    "and",
-    "is",
-    "are",
-    "was",
-    "were",
-    "have",
-    "has",
-    "had",
-    "do",
-    "does",
-    "did",
-    "will",
-    "would",
-    "can",
-    "could",
-    "should",
-    "this",
-    "that",
-    "what",
-    "which",
-    "who",
-    "where",
-    "when",
-    "why",
-    "how",
-    "not",
-    "yes",
-    "please",
-    "thank",
-    "thanks",
-    "hello",
-    "hi",
-    "good",
-    "morning",
-    "night",
+    "und", "der", "die", "das", "ich", "nicht", "ist", "ein", "eine",
+    "mit", "auf", "für", "von", "zu", "auch", "wie", "aber", "oder",
+    "wenn", "weil", "dass", "schon", "noch", "sehr", "mehr", "kann",
+    "haben", "sein", "werden", "machen", "gehen", "kommen",
 }
 
 
 TURKISH_WORDS = {
-    "ben",
-    "sen",
-    "biz",
-    "siz",
-    "bu",
-    "şu",
-    "bir",
-    "ve",
-    "ama",
-    "için",
-    "ile",
-    "ne",
-    "nasıl",
-    "neden",
-    "çok",
-    "var",
-    "yok",
-    "değil",
-    "gibi",
-    "daha",
-    "şimdi",
-    "bugün",
-    "yarın",
-    "merhaba",
-    "teşekkür",
+    "ben", "sen", "biz", "siz", "bu", "şu", "bir", "ve", "ama",
+    "için", "ile", "ne", "nasıl", "neden", "çok", "var", "yok",
+    "değil", "gibi", "daha", "şimdi", "bugün", "yarın", "merhaba", "teşekkür",
+}
+
+
+AZERBAIJANI_WORDS = {
+    "mən", "sən", "biz", "siz", "bəli", "xeyr", "necə", "harada",
+    "haqqında", "üçün", "yoxdur", "təşəkkür", "sağol", "sağ", "ol",
+    "yaxşı", "bağışlayın", "çox", "nə", "kim", "bu", "o", "haradan"
 }
 
 
@@ -267,97 +184,77 @@ def detect_language(text):
     ]
 
     if not letters:
-        return "tr"
+        return "other"
 
     words = {
-        word.strip(
-            ".,!?;:()[]{}\"'“”‘’"
-        )
+        word.strip(".,!?;:()[]{}\"'“”‘’")
         for word in text_lower.split()
     }
 
     # Rusça
     cyrillic_count = sum(
-        1
-        for char in letters
-        if char in CYRILLIC_CHARS
+        1 for char in letters if char in CYRILLIC_CHARS
     )
-
     if cyrillic_count >= 2:
         return "ru"
 
     # Almanca
     german_char_count = sum(
-        1
-        for char in letters
-        if char in GERMAN_CHARS
+        1 for char in letters if char in GERMAN_CHARS
     )
-
-    german_word_count = len(
-        words & GERMAN_WORDS
-    )
-
-    if german_char_count > 0:
+    german_word_count = len(words & GERMAN_WORDS)
+    if german_char_count > 0 or german_word_count >= 1:
         return "de"
 
-    if german_word_count >= 1:
-        return "de"
+    # Azerbaycan Dili
+    az_char_count = sum(
+        1 for char in letters if char in AZERBAIJANI_CHARS
+    )
+    az_word_count = len(words & AZERBAIJANI_WORDS)
+    if az_char_count > 0 or az_word_count >= 1:
+        return "az"
 
     # Türkçe
     turkish_char_count = sum(
-        1
-        for char in letters
-        if char in TURKISH_CHARS
+        1 for char in letters if char in TURKISH_CHARS
     )
-
-    turkish_word_count = len(
-        words & TURKISH_WORDS
-    )
-
-    if turkish_char_count > 0:
+    turkish_word_count = len(words & TURKISH_WORDS)
+    if turkish_char_count > 0 or turkish_word_count >= 1:
         return "tr"
 
-    if turkish_word_count >= 1:
-        return "tr"
-
-    # İngilizce
-    english_word_count = len(
-        words & ENGLISH_WORDS
-    )
-
-    if english_word_count >= 2:
-        return "en"
-
-    # Varsayılan
-    return "tr"
+    # Bu 4 dil dışındaki herhangi bir dil
+    return "other"
 
 
 # =========================================================
-# LANGUAGE CONFIG
+# LANGUAGE CONFIG & TARGETS
 # =========================================================
 
 LANGUAGE_NAMES = {
+    "az": "Azerbaijani",
     "tr": "Turkish",
     "ru": "Russian",
     "de": "German",
-    "en": "English",
 }
 
 
 def get_targets(source_language):
-    if source_language == "tr":
-        return ["ru", "de"]
+    # Sıralama: 1. Azerbaycan dili, 2. Türkçe, 3. Rusça, 4. Almanca
 
-    if source_language == "ru":
-        return ["tr", "de"]
-
-    if source_language == "de":
-        return ["tr", "ru"]
-
-    if source_language == "en":
+    if source_language == "az":
         return ["tr", "ru", "de"]
 
-    return ["tr", "ru", "de"]
+    if source_language == "tr":
+        return ["az", "ru", "de"]
+
+    if source_language == "ru":
+        return ["az", "tr", "de"]
+
+    if source_language == "de":
+        return ["az", "tr", "ru"]
+
+    # Azerbaycan, Türk, Rusça ve Almanca haricinde ne yazılırsa yazılsın 4 dile birden çevrilir
+    return ["az", "tr", "ru", "de"]
 
 
 # =========================================================
@@ -400,26 +297,17 @@ RULES:
 17. Do not make casual text unnecessarily formal.
 18. Do not translate word-for-word if it sounds unnatural.
 19. Use natural native-level grammar.
-20. Russian must sound like natural native Russian.
-21. German must sound like natural native German.
-22. Turkish must sound like natural native Turkish.
-23. English must sound like natural native English.
+20. Azerbaijani must sound like natural native Azerbaijani.
+21. Turkish must sound like natural native Turkish.
+22. Russian must sound like natural native Russian.
+23. German must sound like natural native German.
 24. Do not explain translation choices.
 25. Do not add quotation marks unless they exist in the source.
 26. Output ONLY the translations.
 
 The output MUST use exactly this format:
 
-RU: translation
-DE: translation
-
-or:
-
-TR: translation
-RU: translation
-
-or:
-
+AZ: translation
 TR: translation
 RU: translation
 DE: translation
@@ -592,12 +480,15 @@ async def start_command(
         f"Ben *Viyana AI* — otomatik çeviri botuyum.\n"
         f"*Ehed* tarafından tasarlandım.\n\n"
         f"Durum: *{status_str}*\n\n"
-        f"🌐 *Otomatik çeviri:*\n\n"
-        f"🇹🇷 Türkçe → 🇷🇺 Rusça + 🇩🇪 Almanca\n"
-        f"🇷🇺 Rusça → 🇹🇷 Türkçe + 🇩🇪 Almanca\n"
-        f"🇩🇪 Almanca → 🇹🇷 Türkçe + 🇷🇺 Rusça\n"
-        f"🇬🇧 İngilizce → 🇹🇷 Türkçe + 🇷🇺 Rusça + 🇩🇪 Almanca\n\n"
-        f"Açma/Kapama Komutları:\n"
+        f"🌐 *Otomatik Çeviri Dilleri:*\n"
+        f"1. 🇦🇿 Azərbaycan dili\n"
+        f"2. 🇹🇷 Türkçe\n"
+        f"3. 🇷🇺 Rusça\n"
+        f"4. 🇩🇪 Almanca\n\n"
+        f"💡 *Çalışma Mantığı:*\n"
+        f"• Bu 4 dilden biriyle yazarsanız diğer 3 dile çevrilir.\n"
+        f"• Bu 4 dil dışında ne yazarsanız otomatik 4 dile birden çevrilir.\n\n"
+        f"Komutlar:\n"
         f"/on — Botu açar\n"
         f"/off — Botu kapatır"
     )
@@ -623,10 +514,11 @@ async def help_command(
         "📋 *Viyana AI*\n\n"
         "Mesajını gönder, dil otomatik algılansın "
         "ve gerekli dillere çevrilsin.\n\n"
-        "🇹🇷 Türkçe → 🇷🇺 + 🇩🇪\n"
-        "🇷🇺 Rusça → 🇹🇷 + 🇩🇪\n"
-        "🇩🇪 Almanca → 🇹🇷 + 🇷🇺\n"
-        "🇬🇧 İngilizce → 🇹🇷 + 🇷🇺 + 🇩🇪\n\n"
+        "1. 🇦🇿 Azərbaycan dili → 🇹🇷 + 🇷🇺 + 🇩🇪\n"
+        "2. 🇹🇷 Türkçe → 🇦🇿 + 🇷🇺 + 🇩🇪\n"
+        "3. 🇷🇺 Rusça → 🇦🇿 + 🇹🇷 + 🇩🇪\n"
+        "4. 🇩🇪 Almanca → 🇦🇿 + 🇹🇷 + 🇷🇺\n"
+        "🌍 Diğer diller → 🇦🇿 + 🇹🇷 + 🇷🇺 + 🇩🇪\n\n"
         "*Komutlar:*\n"
         "/start — Başlat\n"
         "/on — Çeviriyi Aktif Et\n"
@@ -656,10 +548,10 @@ async def hakkinda_command(
     message = (
         "🤖 *Viyana AI*\n\n"
         "Profesyonel otomatik çeviri botu.\n\n"
-        "🇹🇷 Türkçe\n"
-        "🇷🇺 Rusça\n"
-        "🇩🇪 Almanca\n"
-        "🇬🇧 İngilizce\n\n"
+        "1. 🇦🇿 Azərbaycan dili\n"
+        "2. 🇹🇷 Türkçe\n"
+        "3. 🇷🇺 Rusça\n"
+        "4. 🇩🇪 Almanca\n\n"
         "Doğal, anlam odaklı ve "
         "native seviyeye yakın çeviri sistemi.\n\n"
         "*Ehed* tarafından tasarlanmıştır."
@@ -731,10 +623,10 @@ async def handle_messages(
     )
 
     flags = {
+        "az": "🇦🇿",
         "tr": "🇹🇷",
         "ru": "🇷🇺",
         "de": "🇩🇪",
-        "en": "🇬🇧",
     }
 
     lines = []
