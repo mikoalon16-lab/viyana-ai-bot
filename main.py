@@ -1,5 +1,4 @@
 import os
-import time
 import logging
 import asyncio
 
@@ -15,7 +14,6 @@ from telegram.ext import (
     filters,
 )
 
-
 # =========================================================
 # ENVIRONMENT & LOGGING
 # =========================================================
@@ -29,7 +27,6 @@ logging.basicConfig(
 
 logger = logging.getLogger("viyana_ai")
 
-
 # =========================================================
 # CONFIG
 # =========================================================
@@ -38,11 +35,9 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 MODEL = "gpt-4o-mini"
-MAX_MESSAGE_LENGTH = 4000
 API_TIMEOUT = 30
 
 IS_BOT_ACTIVE = True
-
 
 # =========================================================
 # OPENAI CLIENT
@@ -56,7 +51,6 @@ if OPENAI_API_KEY:
         timeout=API_TIMEOUT,
         max_retries=0,
     )
-
 
 # =========================================================
 # LANGUAGE DETECTION (Genişletilmiş & Esnek)
@@ -84,9 +78,9 @@ def detect_language(text):
     if sum(1 for char in letters if char in TURKISH_CHARS) > 0:
         return "tr"
 
-    # Genel kelime bazlı sezgisel kontrol (Selam, nasılsın vb. kelimeler için)
+    # Genel kelime bazlı sezgisel kontrol
     words = set(text_lower.split())
-    
+
     az_keywords = {"men", "sen", "sən", "mən", "necə", "nece", "beli", "heç", "olar", "harda"}
     tr_keywords = {"ben", "sen", "selam", "merhaba", "nasılsın", "ne", "nasıl", "iyi", "evet", "tamam", "görüşürüz"}
     ru_keywords = {"привет", "как", "дела", "что", "да", "нет"}
@@ -101,9 +95,8 @@ def detect_language(text):
     if words & de_keywords:
         return "de"
 
-    # Hiçbiri eşleşmezse varsayılan olarak Türkçe/Ortak kabul et ve 4 dile çevir
+    # Hiçbiri eşleşmezse varsayılan olarak Türkçe/Ortak kabul et
     return "tr"
-
 
 def get_targets(source_language):
     if source_language == "az":
@@ -115,7 +108,6 @@ def get_targets(source_language):
     if source_language == "de":
         return ["az", "tr", "ru"]
     return ["az", "tr", "ru", "de"]
-
 
 # =========================================================
 # TRANSLATION PROMPT
@@ -138,53 +130,65 @@ DE: [translation]
 Do not include any other text outside of this format.
 """
 
-
 # =========================================================
 # TRANSLATION FUNCTION
 # =========================================================
 
 async def translate_text(text, source_language, targets):
     if not client:
-        return {lang: "⚠️ OpenAI API anahtarı tanımlı değil." for lang in targets}
+        return {
+            lang: "⚠️ OpenAI API anahtarı tanımlı değil."
+            for lang in targets
+        }
 
-    target_names = ", ".join(f"{lang.upper()}" for lang in targets)
+    target_names = ", ".join(lang.upper() for lang in targets)
 
     user_prompt = (
-        f"SOURCE_LANGUAGE: {source_language}\n"
-        f"TARGET_LANGUAGES: {target_names}\n\n"
-        f"SOURCE_TEXT:\n{text}"
+        f"SOURCE_LANGUAGE: {source_language}
+"
+        f"TARGET_LANGUAGES: {target_names}
+
+"
+        f"SOURCE_TEXT:
+{text}"
     )
 
     try:
-        logger.info("OpenAI API'ye istek gönderiliyor. Model: %s, Hedefler: %s", MODEL, targets)
-        
+        logger.info(
+            "OpenAI API'ye istek gönderiliyor. Model: %s, Hedefler: %s",
+            MODEL,
+            targets,
+        )
+
         response = await client.chat.completions.create(
             model=MODEL,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_prompt},
             ],
             temperature=0.1,
-            max_tokens=800,
+            max_tokens=4096,
         )
 
         content = response.choices[0].message.content.strip()
-        logger.info("OpenAI'dan gelen ham yanıt:\n%s", content)
+        logger.info("OpenAI'dan gelen ham yanıt:
+%s", content)
 
         translations = {}
+
         for line in content.splitlines():
             line = line.strip()
+
             if not line or ":" not in line:
                 continue
 
-            parts = line.split(":", 1)
-            code = parts[0].strip().lower()
-            value = parts[1].strip().strip("[]") # Köşeli parantez gelirse temizle
+            code, value = line.split(":", 1)
+            code = code.strip().lower()
+            value = value.strip().strip("[]")
 
             if code in targets and value:
                 translations[code] = value
 
-        # Eksik kalan dil olursa güvenli fallback
         for lang in targets:
             if lang not in translations:
                 translations[lang] = "⚠️ Çeviri bu dil için oluşturulamadı."
@@ -193,8 +197,10 @@ async def translate_text(text, source_language, targets):
 
     except Exception as error:
         logger.exception("OpenAI çeviri hatası oluştu: %s", error)
-        return {lang: "⚠️ Çeviri sırasında hata oluştu." for lang in targets}
-
+        return {
+            lang: "⚠️ Çeviri sırasında hata oluştu."
+            for lang in targets
+        }
 
 # =========================================================
 # COMMANDS
@@ -205,14 +211,20 @@ async def on_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     IS_BOT_ACTIVE = True
     logger.info("Bot kullanıcı tarafından AKTİF edildi.")
     if update.message:
-        await update.message.reply_text("🟢 *Bot aktif edildi.* Çeviri sistemi çalışıyor.", parse_mode="Markdown")
+        await update.message.reply_text(
+            "🟢 *Bot aktif edildi.* Çeviri sistemi çalışıyor.",
+            parse_mode="Markdown",
+        )
 
 async def off_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global IS_BOT_ACTIVE
     IS_BOT_ACTIVE = False
     logger.info("Bot kullanıcı tarafından KAPATILDI.")
     if update.message:
-        await update.message.reply_text("🔴 *Bot kapatıldı.* Yeni mesajlar çevrilmeyecek.", parse_mode="Markdown")
+        await update.message.reply_text(
+            "🔴 *Bot kapatıldı.* Yeni mesajlar çevrilmeyecek.",
+            parse_mode="Markdown",
+        )
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
@@ -220,13 +232,19 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = update.effective_user.first_name if update.effective_user else ""
     status_str = "🟢 Aktif" if IS_BOT_ACTIVE else "🔴 Kapalı"
     message = (
-        f"🤖 *Merhaba {name}!*\n\n"
-        f"Ben *Viyana AI* — kesintisiz çeviri botuyum.\n"
-        f"Durum: *{status_str}*\n\n"
-        f"Komutlar:\n/on — Aç\n/off — Kapat"
+        f"🤖 *Merhaba {name}!*
+
+"
+        f"Ben *Viyana AI* — kesintisiz çeviri botuyum.
+"
+        f"Durum: *{status_str}*
+
+"
+        f"Komutlar:
+/on — Aç
+/off — Kapat"
     )
     await update.message.reply_text(message, parse_mode="Markdown")
-
 
 # =========================================================
 # MESSAGE HANDLER
@@ -239,11 +257,7 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text = update.message.text.strip()
-    if not text or text.startswith("/") or len(text) < 1:
-        return
-
-    if len(text) > MAX_MESSAGE_LENGTH:
-        await update.message.reply_text(f"⚠️ Mesaj çok uzun (Maksimum {MAX_MESSAGE_LENGTH} karakter).")
+    if not text or text.startswith("/"):
         return
 
     if not client:
@@ -253,7 +267,12 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     source_language = detect_language(text)
     targets = get_targets(source_language)
 
-    logger.info("Mesaj yakalandı | Metin: '%s' | Kaynak=%s | Hedef=%s", text, source_language, targets)
+    logger.info(
+        "Mesaj yakalandı | Metin: '%s' | Kaynak=%s | Hedef=%s",
+        text,
+        source_language,
+        targets,
+    )
 
     translations = await translate_text(
         text=text,
@@ -273,9 +292,10 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         translation = translations.get(lang, "⚠️ Çeviri alınamadı.")
         lines.append(f"{flags[lang]} {translation}")
 
-    reply = "\n\n".join(lines)
-    await update.message.reply_text(reply)
+    reply = "
 
+".join(lines)
+    await update.message.reply_text(reply)
 
 # =========================================================
 # ERROR HANDLER & MAIN
@@ -294,7 +314,9 @@ def main():
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("on", on_command))
     application.add_handler(CommandHandler("off", off_command))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages)
+    )
     application.add_error_handler(error_handler)
 
     logger.info("======================================")
