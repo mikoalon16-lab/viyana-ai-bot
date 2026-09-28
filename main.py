@@ -30,9 +30,8 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-MODEL = "gpt-5.6-luna"
-
-DAILY_LIMIT_USD = 0.40
+# Maliyet dostu ve en yüksek çeviri doğruluğuna sahip model
+MODEL = "gpt-4o-mini"
 
 MAX_MESSAGE_LENGTH = 4000
 
@@ -73,39 +72,13 @@ if OPENAI_API_KEY:
 
 
 # =========================================================
-# DAILY USAGE
+# USAGE TRACKING (Limitsiz)
 # =========================================================
 
 usage_lock = asyncio.Lock()
-
-usage_date = time.strftime("%Y-%m-%d")
-
 estimated_input_tokens = 0
 estimated_output_tokens = 0
 estimated_cost = 0.0
-
-
-def reset_daily_usage():
-    global usage_date
-    global estimated_input_tokens
-    global estimated_output_tokens
-    global estimated_cost
-
-    today = time.strftime("%Y-%m-%d")
-
-    if today != usage_date:
-        usage_date = today
-        estimated_input_tokens = 0
-        estimated_output_tokens = 0
-        estimated_cost = 0.0
-
-        logger.info("Günlük kullanım sayacı sıfırlandı.")
-
-
-async def can_use_api():
-    async with usage_lock:
-        reset_daily_usage()
-        return estimated_cost < DAILY_LIMIT_USD
 
 
 async def add_usage(input_tokens, output_tokens):
@@ -114,25 +87,15 @@ async def add_usage(input_tokens, output_tokens):
     global estimated_cost
 
     async with usage_lock:
-        reset_daily_usage()
-
         estimated_input_tokens += input_tokens
         estimated_output_tokens += output_tokens
 
-        input_cost = (
-            input_tokens / 1_000_000
-        ) * 0.20
-
-        output_cost = (
-            output_tokens / 1_000_000
-        ) * 1.20
-
-        estimated_cost += (
-            input_cost + output_cost
-        )
+        input_cost = (input_tokens / 1_000_000) * 0.15
+        output_cost = (output_tokens / 1_000_000) * 0.60
+        estimated_cost += input_cost + output_cost
 
         logger.info(
-            "API kullanım | input=%s | output=%s | maliyet=$%.6f",
+            "API kullanım | input=%s | output=%s | toplam maliyet=$%.6f",
             estimated_input_tokens,
             estimated_output_tokens,
             estimated_cost,
@@ -144,13 +107,9 @@ async def add_usage(input_tokens, output_tokens):
 # =========================================================
 
 CYRILLIC_CHARS = set("абвгдеёжзийклмнопрстуфхцчшщъыьэюя")
-
 GERMAN_CHARS = set("äöüß")
-
 TURKISH_CHARS = set("çğıöşü")
-
 AZERBAIJANI_CHARS = set("ə")
-
 
 GERMAN_WORDS = {
     "und", "der", "die", "das", "ich", "nicht", "ist", "ein", "eine",
@@ -159,13 +118,11 @@ GERMAN_WORDS = {
     "haben", "sein", "werden", "machen", "gehen", "kommen",
 }
 
-
 TURKISH_WORDS = {
     "ben", "sen", "biz", "siz", "bu", "şu", "bir", "ve", "ama",
     "için", "ile", "ne", "nasıl", "neden", "çok", "var", "yok",
     "değil", "gibi", "daha", "şimdi", "bugün", "yarın", "merhaba", "teşekkür",
 }
-
 
 AZERBAIJANI_WORDS = {
     "mən", "sən", "biz", "siz", "bəli", "xeyr", "necə", "harada",
@@ -176,53 +133,25 @@ AZERBAIJANI_WORDS = {
 
 def detect_language(text):
     text_lower = text.lower()
-
-    letters = [
-        char
-        for char in text_lower
-        if char.isalpha()
-    ]
+    letters = [char for char in text_lower if char.isalpha()]
 
     if not letters:
         return "other"
 
-    words = {
-        word.strip(".,!?;:()[]{}\"'“”‘’")
-        for word in text_lower.split()
-    }
+    words = {word.strip(".,!?;:()[]{}\"'“”‘’") for word in text_lower.split()}
 
-    # Rusça
-    cyrillic_count = sum(
-        1 for char in letters if char in CYRILLIC_CHARS
-    )
-    if cyrillic_count >= 2:
+    if sum(1 for char in letters if char in CYRILLIC_CHARS) >= 2:
         return "ru"
 
-    # Almanca
-    german_char_count = sum(
-        1 for char in letters if char in GERMAN_CHARS
-    )
-    german_word_count = len(words & GERMAN_WORDS)
-    if german_char_count > 0 or german_word_count >= 1:
+    if sum(1 for char in letters if char in GERMAN_CHARS) > 0 or len(words & GERMAN_WORDS) >= 1:
         return "de"
 
-    # Azerbaycan Dili
-    az_char_count = sum(
-        1 for char in letters if char in AZERBAIJANI_CHARS
-    )
-    az_word_count = len(words & AZERBAIJANI_WORDS)
-    if az_char_count > 0 or az_word_count >= 1:
+    if sum(1 for char in letters if char in AZERBAIJANI_CHARS) > 0 or len(words & AZERBAIJANI_WORDS) >= 1:
         return "az"
 
-    # Türkçe
-    turkish_char_count = sum(
-        1 for char in letters if char in TURKISH_CHARS
-    )
-    turkish_word_count = len(words & TURKISH_WORDS)
-    if turkish_char_count > 0 or turkish_word_count >= 1:
+    if sum(1 for char in letters if char in TURKISH_CHARS) > 0 or len(words & TURKISH_WORDS) >= 1:
         return "tr"
 
-    # Bu 4 dil dışındaki herhangi bir dil
     return "other"
 
 
@@ -239,82 +168,39 @@ LANGUAGE_NAMES = {
 
 
 def get_targets(source_language):
-    # Sıralama: 1. Azerbaycan dili, 2. Türkçe, 3. Rusça, 4. Almanca
-
     if source_language == "az":
         return ["tr", "ru", "de"]
-
     if source_language == "tr":
         return ["az", "ru", "de"]
-
     if source_language == "ru":
         return ["az", "tr", "de"]
-
     if source_language == "de":
         return ["az", "tr", "ru"]
-
-    # Azerbaycan, Türk, Rusça ve Almanca haricinde ne yazılırsa yazılsın 4 dile birden çevrilir
     return ["az", "tr", "ru", "de"]
 
 
 # =========================================================
-# TRANSLATION PROMPT
+# TRANSLATION PROMPT (Sıkı Kurallı & Net Çeviri)
 # =========================================================
 
 SYSTEM_PROMPT = """
-You are Viyana AI, a professional translation engine.
+You are Viyana AI, a strict and professional human-level translation engine.
+Your absolute duty is to translate the given text accurately, naturally, and precisely.
 
-Your ONLY job is translation.
+STRICT RULES:
+1. Translate ONLY what is written. Do not add any extra words, comments, notes, explanations, or interpretations.
+2. Never hallucinate or invent information.
+3. Keep the exact meaning, tone, slang, profanity, emojis, numbers, URLs, and punctuation context of the original text.
+4. Do not answer questions or converse if the text is a question or conversation; just translate the text itself.
+5. Provide natural, fluent, native-level phrasing.
+6. Output MUST strictly follow this format and nothing else:
 
-Never answer the user's message.
-Never have a conversation.
-Never explain.
-Never summarize.
-Never give opinions.
-Never add information.
-Never invent information.
+AZ: [translation]
+TR: [translation]
+RU: [translation]
+DE: [translation]
 
-Translate the source text into every requested target language.
-
-RULES:
-
-1. Preserve the exact meaning.
-2. Do not add information.
-3. Do not remove information.
-4. Never hallucinate.
-5. Preserve names.
-6. Preserve usernames.
-7. Preserve URLs.
-8. Preserve numbers.
-9. Preserve dates.
-10. Preserve codes.
-11. Preserve emojis.
-12. Preserve the original tone.
-13. Preserve slang.
-14. Preserve humor.
-15. Preserve profanity.
-16. Do not censor profanity.
-17. Do not make casual text unnecessarily formal.
-18. Do not translate word-for-word if it sounds unnatural.
-19. Use natural native-level grammar.
-20. Azerbaijani must sound like natural native Azerbaijani.
-21. Turkish must sound like natural native Turkish.
-22. Russian must sound like natural native Russian.
-23. German must sound like natural native German.
-24. Do not explain translation choices.
-25. Do not add quotation marks unless they exist in the source.
-26. Output ONLY the translations.
-
-The output MUST use exactly this format:
-
-AZ: translation
-TR: translation
-RU: translation
-DE: translation
-
-Use uppercase language codes.
-
-Do not write anything before or after the translations.
+Do not write anything else before or after this format.
 """
 
 
@@ -333,12 +219,6 @@ async def translate_text(
             for lang in targets
         }
 
-    if not await can_use_api():
-        return {
-            lang: "⚠️ Günlük çeviri kullanım limiti doldu."
-            for lang in targets
-        }
-
     target_names = ", ".join(
         f"{lang}={LANGUAGE_NAMES[lang]}"
         for lang in targets
@@ -351,34 +231,22 @@ async def translate_text(
     )
 
     try:
-        response = await client.responses.create(
+        response = await client.chat.completions.create(
             model=MODEL,
-            instructions=SYSTEM_PROMPT,
-            input=user_prompt,
-            reasoning={
-                "effort": "none"
-            },
-            max_output_tokens=500,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.1,  # Yaratıcılığı sıfıra yakın tutarak tam ve sadık çeviri sağlar
+            max_tokens=800,
         )
 
-        content = response.output_text.strip()
+        content = response.choices[0].message.content.strip()
 
         if response.usage:
-            input_tokens = getattr(
-                response.usage,
-                "input_tokens",
-                0,
-            )
-
-            output_tokens = getattr(
-                response.usage,
-                "output_tokens",
-                0,
-            )
-
             await add_usage(
-                input_tokens,
-                output_tokens,
+                response.usage.prompt_tokens,
+                response.usage.completion_tokens,
             )
 
         translations = {}
@@ -386,17 +254,10 @@ async def translate_text(
         for line in content.splitlines():
             line = line.strip()
 
-            if not line:
+            if not line or ":" not in line:
                 continue
 
-            if ":" not in line:
-                continue
-
-            code, value = line.split(
-                ":",
-                1,
-            )
-
+            code, value = line.split(":", 1)
             code = code.strip().lower()
             value = value.strip()
 
@@ -405,9 +266,7 @@ async def translate_text(
 
         for lang in targets:
             if lang not in translations:
-                translations[lang] = (
-                    "⚠️ Bu dil için çeviri alınamadı."
-                )
+                translations[lang] = "⚠️ Bu dil için çeviri alınamadı."
 
         return translations
 
@@ -458,7 +317,7 @@ async def off_command(
 
 
 # =========================================================
-# /START
+# /START & OTHER COMMANDS
 # =========================================================
 
 async def start_command(
@@ -469,7 +328,6 @@ async def start_command(
         return
 
     name = ""
-
     if update.effective_user:
         name = update.effective_user.first_name or ""
 
@@ -477,31 +335,17 @@ async def start_command(
 
     message = (
         f"🤖 *Merhaba {name}!*\n\n"
-        f"Ben *Viyana AI* — otomatik çeviri botuyum.\n"
-        f"*Ehed* tarafından tasarlandım.\n\n"
+        f"Ben *Viyana AI* — limitsiz, saf ve kusursuz çeviri botuyum.\n"
         f"Durum: *{status_str}*\n\n"
-        f"🌐 *Otomatik Çeviri Dilleri:*\n"
-        f"1. 🇦🇿 Azərbaycan dili\n"
-        f"2. 🇹🇷 Türkçe\n"
-        f"3. 🇷🇺 Rusça\n"
-        f"4. 🇩🇪 Almanca\n\n"
-        f"💡 *Çalışma Mantığı:*\n"
-        f"• Bu 4 dilden biriyle yazarsanız diğer 3 dile çevrilir.\n"
-        f"• Bu 4 dil dışında ne yazarsanız otomatik 4 dile birden çevrilir.\n\n"
+        f"🌐 *Desteklenen Diller:*\n"
+        f"🇦🇿 Azərbaycan | 🇹🇷 Türkçe | 🇷🇺 Русский | 🇩🇪 Deutsch\n\n"
         f"Komutlar:\n"
         f"/on — Botu açar\n"
         f"/off — Botu kapatır"
     )
 
-    await update.message.reply_text(
-        message,
-        parse_mode="Markdown",
-    )
+    await update.message.reply_text(message, parse_mode="Markdown")
 
-
-# =========================================================
-# /HELP
-# =========================================================
 
 async def help_command(
     update: Update,
@@ -511,32 +355,14 @@ async def help_command(
         return
 
     message = (
-        "📋 *Viyana AI*\n\n"
-        "Mesajını gönder, dil otomatik algılansın "
-        "ve gerekli dillere çevrilsin.\n\n"
-        "1. 🇦🇿 Azərbaycan dili → 🇹🇷 + 🇷🇺 + 🇩🇪\n"
-        "2. 🇹🇷 Türkçe → 🇦🇿 + 🇷🇺 + 🇩🇪\n"
-        "3. 🇷🇺 Rusça → 🇦🇿 + 🇹🇷 + 🇩🇪\n"
-        "4. 🇩🇪 Almanca → 🇦🇿 + 🇹🇷 + 🇷🇺\n"
-        "🌍 Diğer diller → 🇦🇿 + 🇹🇷 + 🇷🇺 + 🇩🇪\n\n"
-        "*Komutlar:*\n"
-        "/start — Başlat\n"
-        "/on — Çeviriyi Aktif Et\n"
-        "/off — Çeviriyi Kapat\n"
-        "/help — Yardım\n"
-        "/hakkinda — Hakkında\n"
-        "/about — About"
+        "📋 *Viyana AI Yardım*\n\n"
+        "Mesajını gönder, kelimesi kelimesine değil, "
+        "tam anlamıyla ve insan gibi diğer dillere aktarılsın.\n\n"
+        "/on — Aktif et\n"
+        "/off — Kapat"
     )
+    await update.message.reply_text(message, parse_mode="Markdown")
 
-    await update.message.reply_text(
-        message,
-        parse_mode="Markdown",
-    )
-
-
-# =========================================================
-# /HAKKINDA
-# =========================================================
 
 async def hakkinda_command(
     update: Update,
@@ -545,22 +371,8 @@ async def hakkinda_command(
     if not update.message:
         return
 
-    message = (
-        "🤖 *Viyana AI*\n\n"
-        "Profesyonel otomatik çeviri botu.\n\n"
-        "1. 🇦🇿 Azərbaycan dili\n"
-        "2. 🇹🇷 Türkçe\n"
-        "3. 🇷🇺 Rusça\n"
-        "4. 🇩🇪 Almanca\n\n"
-        "Doğal, anlam odaklı ve "
-        "native seviyeye yakın çeviri sistemi.\n\n"
-        "*Ehed* tarafından tasarlanmıştır."
-    )
-
-    await update.message.reply_text(
-        message,
-        parse_mode="Markdown",
-    )
+    message = "🤖 *Viyana AI*\nEkstra yorum yapmayan, sadece tam çeviri yapan sistem."
+    await update.message.reply_text(message, parse_Mode="Markdown")
 
 
 # =========================================================
@@ -573,48 +385,25 @@ async def handle_messages(
 ):
     if not IS_BOT_ACTIVE:
         return
-
-    if not update.message:
-        return
-
-    if not update.message.text:
+    if not update.message or not update.message.text:
         return
 
     text = update.message.text.strip()
-
-    if not text:
-        return
-
-    if text.startswith("/"):
-        return
-
-    if len(text) < 2:
+    if not text or text.startswith("/") or len(text) < 2:
         return
 
     if len(text) > MAX_MESSAGE_LENGTH:
-        await update.message.reply_text(
-            f"⚠️ Mesaj çok uzun.\n"
-            f"Maksimum {MAX_MESSAGE_LENGTH} karakter."
-        )
+        await update.message.reply_text(f"⚠️ Mesaj çok uzun (Maksimum {MAX_MESSAGE_LENGTH} karakter).")
         return
 
     if not client:
-        await update.message.reply_text(
-            "⚠️ OpenAI API anahtarı tanımlı değil."
-        )
+        await update.message.reply_text("⚠️ OpenAI API anahtarı tanımlı değil.")
         return
 
     source_language = detect_language(text)
+    targets = get_targets(source_language)
 
-    targets = get_targets(
-        source_language
-    )
-
-    logger.info(
-        "Kaynak=%s | Hedef=%s",
-        source_language,
-        targets,
-    )
+    logger.info("Kaynak=%s | Hedef=%s", source_language, targets)
 
     translations = await translate_text(
         text=text,
@@ -630,37 +419,20 @@ async def handle_messages(
     }
 
     lines = []
-
     for lang in targets:
-        translation = translations.get(
-            lang,
-            "⚠️ Çeviri alınamadı.",
-        )
-
-        lines.append(
-            f"{flags[lang]} {translation}"
-        )
+        translation = translations.get(lang, "⚠️ Çeviri alınamadı.")
+        lines.append(f"{flags[lang]} {translation}")
 
     reply = "\n\n".join(lines)
-
-    await update.message.reply_text(
-        reply
-    )
+    await update.message.reply_text(reply)
 
 
 # =========================================================
 # ERROR HANDLER
 # =========================================================
 
-async def error_handler(
-    update: object,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-    logger.error(
-        "Telegram hatası: %s",
-        context.error,
-        exc_info=context.error,
-    )
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logger.error("Telegram hatası: %s", context.error, exc_info=context.error)
 
 
 # =========================================================
@@ -668,113 +440,28 @@ async def error_handler(
 # =========================================================
 
 def main():
-    if not TELEGRAM_BOT_TOKEN:
-        logger.error(
-            "TELEGRAM_BOT_TOKEN bulunamadı!"
-        )
+    if not TELEGRAM_BOT_TOKEN or not OPENAI_API_KEY:
+        logger.error("Token veya API anahtarı eksik!")
         return
 
-    if not OPENAI_API_KEY:
-        logger.error(
-            "OPENAI_API_KEY bulunamadı!"
-        )
-        return
+    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
-    application = (
-        ApplicationBuilder()
-        .token(TELEGRAM_BOT_TOKEN)
-        .build()
-    )
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("on", on_command))
+    application.add_handler(CommandHandler("off", off_command))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("hakkinda", hakkinda_command))
+    application.add_handler(CommandHandler("about", hakkinda_command))
 
-    # Commands
-    application.add_handler(
-        CommandHandler(
-            "start",
-            start_command,
-        )
-    )
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))
+    application.add_error_handler(error_handler)
 
-    application.add_handler(
-        CommandHandler(
-            "on",
-            on_command,
-        )
-    )
+    logger.info("======================================")
+    logger.info("Viyana AI başlatıldı (Saf Çeviri Modu - Model: %s)", MODEL)
+    logger.info("======================================")
 
-    application.add_handler(
-        CommandHandler(
-            "off",
-            off_command,
-        )
-    )
+    application.run_polling(drop_pending_updates=True)
 
-    application.add_handler(
-        CommandHandler(
-            "help",
-            help_command,
-        )
-    )
-
-    application.add_handler(
-        CommandHandler(
-            "hakkinda",
-            hakkinda_command,
-        )
-    )
-
-    application.add_handler(
-        CommandHandler(
-            "about",
-            hakkinda_command,
-        )
-    )
-
-    # Messages
-    application.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            handle_messages,
-        )
-    )
-
-    application.add_error_handler(
-        error_handler
-    )
-
-    logger.info(
-        "======================================"
-    )
-
-    logger.info(
-        "Viyana AI başlatıldı."
-    )
-
-    logger.info(
-        "Model: %s",
-        MODEL,
-    )
-
-    logger.info(
-        "Günlük uygulama limiti: $%.2f",
-        DAILY_LIMIT_USD,
-    )
-
-    logger.info(
-        "Tek mesaj = tek OpenAI çağrısı."
-    )
-
-    logger.info(
-        "======================================"
-    )
-
-    application.run_polling(
-        drop_pending_updates=True
-    )
-
-
-# =========================================================
-# RUN
-# =========================================================
 
 if __name__ == "__main__":
     main()
