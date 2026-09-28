@@ -137,15 +137,11 @@ async def translate_text(text, source_language, targets):
 
     target_names = ", ".join(lang.upper() for lang in targets)
 
-    user_prompt = (
-        f"SOURCE_LANGUAGE: {source_language}
-"
-        f"TARGET_LANGUAGES: {target_names}
+    user_prompt = f"SOURCE_LANGUAGE: {source_language}
+TARGET_LANGUAGES: {target_names}
 
-"
-        f"SOURCE_TEXT:
+SOURCE_TEXT:
 {text}"
-    )
 
     try:
         logger.info(
@@ -222,19 +218,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     name = update.effective_user.first_name if update.effective_user else ""
     status_str = "🟢 Aktif" if IS_BOT_ACTIVE else "🔴 Kapalı"
-    message = (
-        f"🤖 *Merhaba {name}!*
+    message = f"🤖 *Merhaba {name}!*
 
-"
-        f"Ben *Viyana AI* — kesintisiz çeviri botuyum.
-"
-        f"Durum: *{status_str}*
+Ben *Viyana AI* — kesintisiz çeviri botuyum.
+Durum: *{status_str}*
 
-"
-        f"Komutlar:
+Komutlar:
 /on — Aç
 /off — Kapat"
-    )
     await update.message.reply_text(message, parse_mode="Markdown")
 
 # =========================================================
