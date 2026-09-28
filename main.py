@@ -68,7 +68,6 @@ def detect_language(text):
     if not letters:
         return "other"
 
-    # Karakter bazlı kesin kontrol
     if sum(1 for char in letters if char in CYRILLIC_CHARS) >= 1:
         return "ru"
     if sum(1 for char in letters if char in GERMAN_CHARS) > 0:
@@ -78,7 +77,6 @@ def detect_language(text):
     if sum(1 for char in letters if char in TURKISH_CHARS) > 0:
         return "tr"
 
-    # Genel kelime bazlı sezgisel kontrol
     words = set(text_lower.split())
 
     az_keywords = {"men", "sen", "sən", "mən", "necə", "nece", "beli", "heç", "olar", "harda"}
@@ -95,7 +93,6 @@ def detect_language(text):
     if words & de_keywords:
         return "de"
 
-    # Hiçbiri eşleşmezse varsayılan olarak Türkçe/Ortak kabul et
     return "tr"
 
 def get_targets(source_language):
@@ -136,10 +133,7 @@ Do not include any other text outside of this format.
 
 async def translate_text(text, source_language, targets):
     if not client:
-        return {
-            lang: "⚠️ OpenAI API anahtarı tanımlı değil."
-            for lang in targets
-        }
+        return {lang: "⚠️ OpenAI API anahtarı tanımlı değil." for lang in targets}
 
     target_names = ", ".join(lang.upper() for lang in targets)
 
@@ -197,10 +191,7 @@ async def translate_text(text, source_language, targets):
 
     except Exception as error:
         logger.exception("OpenAI çeviri hatası oluştu: %s", error)
-        return {
-            lang: "⚠️ Çeviri sırasında hata oluştu."
-            for lang in targets
-        }
+        return {lang: "⚠️ Çeviri sırasında hata oluştu." for lang in targets}
 
 # =========================================================
 # COMMANDS
