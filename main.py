@@ -137,11 +137,11 @@ async def translate_text(text, source_language, targets):
 
     target_names = ", ".join(lang.upper() for lang in targets)
 
-    user_prompt = f"SOURCE_LANGUAGE: {source_language}
-TARGET_LANGUAGES: {target_names}
-
-SOURCE_TEXT:
-{text}"
+    user_prompt = (
+        f"SOURCE_LANGUAGE: {source_language}\n"
+        f"TARGET_LANGUAGES: {target_names}\n\n"
+        f"SOURCE_TEXT:\n{text}"
+    )
 
     try:
         logger.info(
@@ -161,8 +161,7 @@ SOURCE_TEXT:
         )
 
         content = response.choices[0].message.content.strip()
-        logger.info("OpenAI'dan gelen ham yanıt:
-%s", content)
+        logger.info("OpenAI'dan gelen ham yanıt:\n%s", content)
 
         translations = {}
 
@@ -218,14 +217,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     name = update.effective_user.first_name if update.effective_user else ""
     status_str = "🟢 Aktif" if IS_BOT_ACTIVE else "🔴 Kapalı"
-    message = f"🤖 *Merhaba {name}!*
-
-Ben *Viyana AI* — kesintisiz çeviri botuyum.
-Durum: *{status_str}*
-
-Komutlar:
-/on — Aç
-/off — Kapat"
+    message = (
+        f"🤖 *Merhaba {name}!*\n\n"
+        f"Ben *Viyana AI* — kesintisiz çeviri botuyum.\n"
+        f"Durum: *{status_str}*\n\n"
+        f"Komutlar:\n"
+        f"/on — Aç\n"
+        f"/off — Kapat"
+    )
     await update.message.reply_text(message, parse_mode="Markdown")
 
 # =========================================================
@@ -274,9 +273,7 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         translation = translations.get(lang, "⚠️ Çeviri alınamadı.")
         lines.append(f"{flags[lang]} {translation}")
 
-    reply = "
-
-".join(lines)
+    reply = "\n\n".join(lines)
     await update.message.reply_text(reply)
 
 # =========================================================
