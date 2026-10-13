@@ -57,7 +57,6 @@ if OPENAI_API_KEY:
 # =========================================================
 
 CYRILLIC_CHARS = set("абвгдеёжзийклмнопрстуфхцчшщъыьэюя")
-GERMAN_CHARS = set("äöüß")
 TURKISH_CHARS = set("çğıöşü")
 AZERBAIJANI_CHARS = set("ə")
 
@@ -70,8 +69,6 @@ def detect_language(text):
 
     if sum(1 for char in letters if char in CYRILLIC_CHARS) >= 1:
         return "ru"
-    if sum(1 for char in letters if char in GERMAN_CHARS) > 0:
-        return "de"
     if sum(1 for char in letters if char in AZERBAIJANI_CHARS) > 0:
         return "az"
     if sum(1 for char in letters if char in TURKISH_CHARS) > 0:
@@ -82,7 +79,6 @@ def detect_language(text):
     az_keywords = {"men", "sen", "sən", "mən", "necə", "nece", "beli", "heç", "olar", "harda"}
     tr_keywords = {"ben", "sen", "selam", "merhaba", "nasılsın", "ne", "nasıl", "iyi", "evet", "tamam", "görüşürüz"}
     ru_keywords = {"привет", "как", "дела", "что", "да", "нет"}
-    de_keywords = {"hallo", "wie", "geht", "gut", "und", "ja", "nein"}
 
     if words & az_keywords:
         return "az"
@@ -90,21 +86,17 @@ def detect_language(text):
         return "tr"
     if words & ru_keywords:
         return "ru"
-    if words & de_keywords:
-        return "de"
 
     return "tr"
 
 def get_targets(source_language):
     if source_language == "az":
-        return ["tr", "ru", "de"]
+        return ["tr", "ru"]
     if source_language == "tr":
-        return ["az", "ru", "de"]
+        return ["az", "ru"]
     if source_language == "ru":
-        return ["az", "tr", "de"]
-    if source_language == "de":
-        return ["az", "tr", "ru"]
-    return ["az", "tr", "ru", "de"]
+        return ["az", "tr"]
+    return ["az", "tr", "ru"]
 
 # =========================================================
 # TRANSLATION PROMPT
@@ -122,7 +114,6 @@ CRITICAL RULES:
 AZ: [translation]
 TR: [translation]
 RU: [translation]
-DE: [translation]
 
 Do not include any other text outside of this format.
 """
@@ -265,7 +256,6 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "az": "🇦🇿",
         "tr": "🇹🇷",
         "ru": "🇷🇺",
-        "de": "🇩🇪",
     }
 
     lines = []
