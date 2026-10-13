@@ -58,7 +58,6 @@ if OPENAI_API_KEY:
 
 CYRILLIC_CHARS = set("абвгдеёжзийклмнопрстуфхцчшщъыьэюя")
 TURKISH_CHARS = set("çğıöşü")
-AZERBAIJANI_CHARS = set("ə")
 
 def detect_language(text):
     text_lower = text.lower()
@@ -69,19 +68,14 @@ def detect_language(text):
 
     if sum(1 for char in letters if char in CYRILLIC_CHARS) >= 1:
         return "ru"
-    if sum(1 for char in letters if char in AZERBAIJANI_CHARS) > 0:
-        return "az"
     if sum(1 for char in letters if char in TURKISH_CHARS) > 0:
         return "tr"
 
     words = set(text_lower.split())
 
-    az_keywords = {"men", "sen", "sən", "mən", "necə", "nece", "beli", "heç", "olar", "harda"}
     tr_keywords = {"ben", "sen", "selam", "merhaba", "nasılsın", "ne", "nasıl", "iyi", "evet", "tamam", "görüşürüz"}
     ru_keywords = {"привет", "как", "дела", "что", "да", "нет"}
 
-    if words & az_keywords:
-        return "az"
     if words & tr_keywords:
         return "tr"
     if words & ru_keywords:
@@ -90,13 +84,11 @@ def detect_language(text):
     return "tr"
 
 def get_targets(source_language):
-    if source_language == "az":
-        return ["tr", "ru"]
     if source_language == "tr":
-        return ["az", "ru"]
+        return ["ru"]
     if source_language == "ru":
-        return ["az", "tr"]
-    return ["az", "tr", "ru"]
+        return ["tr"]
+    return ["tr", "ru"]
 
 # =========================================================
 # TRANSLATION PROMPT
@@ -111,7 +103,6 @@ CRITICAL RULES:
 2. Keep the exact meaning, tone, emojis, and punctuation.
 3. Output MUST strictly follow this format for each requested language code (in uppercase):
 
-AZ: [translation]
 TR: [translation]
 RU: [translation]
 
@@ -253,7 +244,6 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     flags = {
-        "az": "🇦🇿",
         "tr": "🇹🇷",
         "ru": "🇷🇺",
     }
