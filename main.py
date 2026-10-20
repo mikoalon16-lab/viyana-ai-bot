@@ -149,8 +149,6 @@ GERMAN_CHARS = set("äöüß")
 
 TURKISH_CHARS = set("çğıöşü")
 
-AZERBAIJANI_CHARS = set("ə")
-
 
 GERMAN_WORDS = {
     "und", "der", "die", "das", "ich", "nicht", "ist", "ein", "eine",
@@ -164,13 +162,6 @@ TURKISH_WORDS = {
     "ben", "sen", "biz", "siz", "bu", "şu", "bir", "ve", "ama",
     "için", "ile", "ne", "nasıl", "neden", "çok", "var", "yok",
     "değil", "gibi", "daha", "şimdi", "bugün", "yarın", "merhaba", "teşekkür",
-}
-
-
-AZERBAIJANI_WORDS = {
-    "mən", "sən", "biz", "siz", "bəli", "xeyr", "necə", "harada",
-    "haqqında", "üçün", "yoxdur", "təşəkkür", "sağol", "sağ", "ol",
-    "yaxşı", "bağışlayın", "çox", "nə", "kim", "bu", "o", "haradan"
 }
 
 
@@ -206,14 +197,6 @@ def detect_language(text):
     if german_char_count > 0 or german_word_count >= 1:
         return "de"
 
-    # Azerbaycan Dili
-    az_char_count = sum(
-        1 for char in letters if char in AZERBAIJANI_CHARS
-    )
-    az_word_count = len(words & AZERBAIJANI_WORDS)
-    if az_char_count > 0 or az_word_count >= 1:
-        return "az"
-
     # Türkçe
     turkish_char_count = sum(
         1 for char in letters if char in TURKISH_CHARS
@@ -222,7 +205,7 @@ def detect_language(text):
     if turkish_char_count > 0 or turkish_word_count >= 1:
         return "tr"
 
-    # Bu 4 dil dışındaki herhangi bir dil
+    # Diğer diller
     return "other"
 
 
@@ -231,7 +214,6 @@ def detect_language(text):
 # =========================================================
 
 LANGUAGE_NAMES = {
-    "az": "Azerbaijani",
     "tr": "Turkish",
     "ru": "Russian",
     "de": "German",
@@ -239,22 +221,16 @@ LANGUAGE_NAMES = {
 
 
 def get_targets(source_language):
-    # Sıralama: 1. Azerbaycan dili, 2. Türkçe, 3. Rusça, 4. Almanca
-
-    if source_language == "az":
-        return ["tr", "ru", "de"]
-
     if source_language == "tr":
-        return ["az", "ru", "de"]
+        return ["ru", "de"]
 
     if source_language == "ru":
-        return ["az", "tr", "de"]
+        return ["tr", "de"]
 
     if source_language == "de":
-        return ["az", "tr", "ru"]
+        return ["tr", "ru"]
 
-    # Azerbaycan, Türk, Rusça ve Almanca haricinde ne yazılırsa yazılsın 4 dile birden çevrilir
-    return ["az", "tr", "ru", "de"]
+    return ["tr", "ru", "de"]
 
 
 # =========================================================
@@ -297,17 +273,15 @@ RULES:
 17. Do not make casual text unnecessarily formal.
 18. Do not translate word-for-word if it sounds unnatural.
 19. Use natural native-level grammar.
-20. Azerbaijani must sound like natural native Azerbaijani.
-21. Turkish must sound like natural native Turkish.
-22. Russian must sound like natural native Russian.
-23. German must sound like natural native German.
-24. Do not explain translation choices.
-25. Do not add quotation marks unless they exist in the source.
-26. Output ONLY the translations.
+20. Turkish must sound like natural native Turkish.
+21. Russian must sound like natural native Russian.
+22. German must sound like natural native German.
+23. Do not explain translation choices.
+24. Do not add quotation marks unless they exist in the source.
+25. Output ONLY the translations.
 
 The output MUST use exactly this format:
 
-AZ: translation
 TR: translation
 RU: translation
 DE: translation
@@ -481,13 +455,12 @@ async def start_command(
         f"*Ehed* tarafından tasarlandım.\n\n"
         f"Durum: *{status_str}*\n\n"
         f"🌐 *Otomatik Çeviri Dilleri:*\n"
-        f"1. 🇦🇿 Azərbaycan dili\n"
-        f"2. 🇹🇷 Türkçe\n"
-        f"3. 🇷🇺 Rusça\n"
-        f"4. 🇩🇪 Almanca\n\n"
+        f"1. 🇹🇷 Türkçe\n"
+        f"2. 🇷🇺 Rusça\n"
+        f"3. 🇩🇪 Almanca\n\n"
         f"💡 *Çalışma Mantığı:*\n"
-        f"• Bu 4 dilden biriyle yazarsanız diğer 3 dile çevrilir.\n"
-        f"• Bu 4 dil dışında ne yazarsanız otomatik 4 dile birden çevrilir.\n\n"
+        f"• Bu 3 dilden biriyle yazarsanız diğer 2 dile çevrilir.\n"
+        f"• Bu 3 dil dışında ne yazarsanız otomatik 3 dile birden çevrilir.\n\n"
         f"Komutlar:\n"
         f"/on — Botu açar\n"
         f"/off — Botu kapatır"
@@ -514,11 +487,10 @@ async def help_command(
         "📋 *Viyana AI*\n\n"
         "Mesajını gönder, dil otomatik algılansın "
         "ve gerekli dillere çevrilsin.\n\n"
-        "1. 🇦🇿 Azərbaycan dili → 🇹🇷 + 🇷🇺 + 🇩🇪\n"
-        "2. 🇹🇷 Türkçe → 🇦🇿 + 🇷🇺 + 🇩🇪\n"
-        "3. 🇷🇺 Rusça → 🇦🇿 + 🇹🇷 + 🇩🇪\n"
-        "4. 🇩🇪 Almanca → 🇦🇿 + 🇹🇷 + 🇷🇺\n"
-        "🌍 Diğer diller → 🇦🇿 + 🇹🇷 + 🇷🇺 + 🇩🇪\n\n"
+        "1. 🇹🇷 Türkçe → 🇷🇺 + 🇩🇪\n"
+        "2. 🇷🇺 Rusça → 🇹🇷 + 🇩🇪\n"
+        "3. 🇩🇪 Almanca → 🇹🇷 + 🇷🇺\n"
+        "🌍 Diğer diller → 🇹🇷 + 🇷🇺 + 🇩🇪\n\n"
         "*Komutlar:*\n"
         "/start — Başlat\n"
         "/on — Çeviriyi Aktif Et\n"
@@ -548,10 +520,9 @@ async def hakkinda_command(
     message = (
         "🤖 *Viyana AI*\n\n"
         "Profesyonel otomatik çeviri botu.\n\n"
-        "1. 🇦🇿 Azərbaycan dili\n"
-        "2. 🇹🇷 Türkçe\n"
-        "3. 🇷🇺 Rusça\n"
-        "4. 🇩🇪 Almanca\n\n"
+        "1. 🇹🇷 Türkçe\n"
+        "2. 🇷🇺 Rusça\n"
+        "3. 🇩🇪 Almanca\n\n"
         "Doğal, anlam odaklı ve "
         "native seviyeye yakın çeviri sistemi.\n\n"
         "*Ehed* tarafından tasarlanmıştır."
@@ -623,7 +594,6 @@ async def handle_messages(
     )
 
     flags = {
-        "az": "🇦🇿",
         "tr": "🇹🇷",
         "ru": "🇷🇺",
         "de": "🇩🇪",
