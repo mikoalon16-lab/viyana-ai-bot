@@ -168,6 +168,12 @@ TURKISH_WORDS = {
     "değil", "gibi", "daha", "şimdi", "bugün", "yarın", "merhaba", "teşekkür",
 }
 
+ENGLISH_WORDS = {
+    "the", "and", "is", "to", "in", "it", "of", "you", "that", "he",
+    "was", "for", "on", "are", "with", "as", "his", "they", "at", "be",
+    "this", "have", "from", "or", "had", "by", "hot", "but", "some", "what"
+}
+
 
 def detect_language(text):
     text_lower = text.lower()
@@ -209,6 +215,11 @@ def detect_language(text):
     if turkish_char_count > 0 or turkish_word_count >= 1:
         return "tr"
 
+    # İngilizce
+    english_word_count = len(words & ENGLISH_WORDS)
+    if english_word_count >= 1:
+        return "en"
+
     # Diğer diller
     return "other"
 
@@ -221,20 +232,15 @@ LANGUAGE_NAMES = {
     "tr": "Turkish",
     "ru": "Russian",
     "de": "German",
+    "en": "English",
 }
 
 
 def get_targets(source_language):
-    if source_language == "tr":
-        return ["ru", "de"]
-
-    if source_language == "ru":
-        return ["tr", "de"]
-
-    if source_language == "de":
-        return ["tr", "ru"]
-
-    return ["tr", "ru", "de"]
+    all_langs = ["tr", "ru", "de", "en"]
+    if source_language in all_langs:
+        return [lang for lang in all_langs if lang != source_language]
+    return ["tr", "ru", "de", "en"]
 
 
 # =========================================================
@@ -280,15 +286,17 @@ RULES:
 20. Turkish must sound like natural native Turkish.
 21. Russian must sound like natural native Russian.
 22. German must sound like natural native German.
-23. Do not explain translation choices.
-24. Do not add quotation marks unless they exist in the source.
-25. Output ONLY the translations.
+23. English must sound like natural native English.
+24. Do not explain translation choices.
+25. Do not add quotation marks unless they exist in the source.
+26. Output ONLY the translations.
 
-The output MUST use exactly this format:
+The output MUST use exactly this format (depending on requested targets):
 
 TR: translation
 RU: translation
 DE: translation
+EN: translation
 
 Use uppercase language codes.
 
@@ -311,7 +319,10 @@ ZORUNLU CEVAP FORMATI (her zaman kelimesi kelimesine bu formatta cevap ver, baş
 🇷🇺 Русский:
 [Rusça cevabın]
 
-Kullanıcı hangi dilde yazarsa yazsın, sen her zaman hem Türkçe hem Rusça çevirili şekilde cevap ver.
+🇬🇧 English:
+[İngilizce cevabın]
+
+Kullanıcı hangi dilde yazarsa yazsın, sen her zaman hem Türkçe, hem Rusça hem de İngilizce çevirili şekilde cevap ver.
 """
 
 PROMPTS = {
@@ -332,9 +343,9 @@ Kullanıcı sana küfür ettiğinde veya sert yazdığında, altından kalma, ay
 
 def get_mode_keyboard():
     keyboard = [
-        [InlineKeyboardButton("🌸 Normal / Обычный", callback_data="mode_normal")],
-        [InlineKeyboardButton("💋 Seksi / Секси", callback_data="mode_sexy")],
-        [InlineKeyboardButton("🔥 18+ / 18+", callback_data="mode_18plus")],
+        [InlineKeyboardButton("🌸 Normal / Обычный / Normal", callback_data="mode_normal")],
+        [InlineKeyboardButton("💋 Seksi / Секси / Sexy", callback_data="mode_sexy")],
+        [InlineKeyboardButton("🔥 18+ / 18+ / 18+", callback_data="mode_18plus")],
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -379,7 +390,7 @@ async def translate_text(
             reasoning={
                 "effort": "none"
             },
-            max_output_tokens=500,
+            max_output_tokens=600,
         )
 
         content = response.output_text.strip()
@@ -445,7 +456,7 @@ async def translate_text(
 
 
 # =========================================================
-# ASISTANT FUNCTION (ETİKETLENİNCE / YANIT VERİLİNCE)
+# ASSISTANT FUNCTION (ETİKETLENİNCE / YANIT VERİLİNCE)
 # =========================================================
 
 async def ask_assistant(prompt, mode="normal"):
@@ -465,7 +476,7 @@ async def ask_assistant(prompt, mode="normal"):
             reasoning={
                 "effort": "none"
             },
-            max_output_tokens=1000,
+            max_output_tokens=1200,
         )
 
         content = response.output_text.strip()
@@ -579,15 +590,15 @@ async def mode_command(
     current = chat_modes.get(chat_id, "normal")
 
     names = {
-        "normal": "🌸 Normal / Обычный",
-        "sexy": "💋 Seksi / Секси",
-        "18plus": "🔥 18+ / 18+",
+        "normal": "🌸 Normal / Обычный / Normal",
+        "sexy": "💋 Seksi / Секси / Sexy",
+        "18plus": "🔥 18+ / 18+ / 18+",
     }
 
     text = (
-        f"Mevcut mod / Текущий режим:\n"
+        f"Mevcut mod / Текущий режим / Current mode:\n"
         f"**{names.get(current, current)}**\n\n"
-        f"Yeni mod seç / Выбери режим:"
+        f"Yeni mod seç / Выбери режим / Select mode:"
     )
 
     await update.message.reply_text(
@@ -610,19 +621,19 @@ async def on_callback(
     if data == "mode_normal":
         chat_modes[chat_id] = "normal"
         await query.edit_message_text(
-            "✅ Mod ayarlandı / Режим установлен:\n**🌸 Normal / Обычный**",
+            "✅ Mod ayarlandı / Режим установлен / Mode set:\n**🌸 Normal / Обычный / Normal**",
             parse_mode="Markdown",
         )
     elif data == "mode_sexy":
         chat_modes[chat_id] = "sexy"
         await query.edit_message_text(
-            "✅ Mod ayarlandı / Режим установлен:\n**💋 Seksi / Секси**",
+            "✅ Mod ayarlandı / Режим установлен / Mode set:\n**💋 Seksi / Секси / Sexy**",
             parse_mode="Markdown",
         )
     elif data == "mode_18plus":
         chat_modes[chat_id] = "18plus"
         await query.edit_message_text(
-            "✅ Mod ayarlandı / Режим установлен:\n**🔥 18+ / 18+**",
+            "✅ Mod ayarlandı / Режим установлен / Mode set:\n**🔥 18+ / 18+ / 18+**",
             parse_mode="Markdown",
         )
 
@@ -647,11 +658,11 @@ async def start_command(
 
     message = (
         f"🤖 *Merhaba {name}!*\n\n"
-        f"Ben *Viyana AI* — otomatik çeviri ve asistan botuyum.\n"
-        f"*Ehed* tarafından tasarlandım[span_0](start_span)[span_0](end_span).\n\n"
+        f"Ben *Viyana AI* — otomatik çeviri (TR, RU, DE, EN) ve asistan botuyum.\n"
+        f"*Ehed* tarafından tasarlandım[span_4](start_span)[span_4](end_span).\n\n"
         f"Durum: *{status_str}*\n\n"
         f"🌐 *Özellikler:*\n"
-        f"• Normal mesajlarda otomatik çeviri (TR, RU, DE).\n"
+        f"• Normal mesajlarda otomatik çeviri (TR, RU, DE, EN).\n"
         f"• Etiketlendiğinde veya yanıt verildiğinde asistan modunda sohbet.\n"
         f"• /mode komutuyla mod değişimi (Normal, Seksi, 18+).\n\n"
         f"Komutlar:\n"
@@ -679,7 +690,7 @@ async def help_command(
 
     message = (
         "📋 *Viyana AI Yardım*\n\n"
-        "1. Normal yazışmalarda mesajları otomatik çevirir[span_1](start_span)[span_1](end_span).\n"
+        "1. Normal yazışmalarda mesajları otomatik çevirir (TR, RU, DE, EN)[span_5](start_span)[span_5](end_span).\n"
         "2. Beni etiketleyerek ya da mesajıma yanıt vererek konuşabilirsin.\n"
         "3. /mode komutu ile modları değiştirebilirsin.\n\n"
         "*Komutlar:*\n"
@@ -710,11 +721,12 @@ async def hakkinda_command(
 
     message = (
         "🤖 *Viyana AI*\n\n"
-        "Profesyonel otomatik çeviri ve asistan botu[span_2](start_span)[span_2](end_span).\n\n"
+        "Profesyonel otomatik çeviri ve asistan botu[span_6](start_span)[span_6](end_span).\n\n"
         "1. 🇹🇷 Türkçe\n"
         "2. 🇷🇺 Rusça\n"
-        "3. 🇩🇪 Almanca\n\n"
-        "*Ehed* tarafından tasarlanmıştır[span_3](start_span)[span_3](end_span)."
+        "3. 🇩🇪 Almanca\n"
+        "4. 🇬🇧 İngilizce\n\n"
+        "*Ehed* tarafından tasarlanmıştır[span_7](start_span)[span_7](end_span)."
     )
 
     await update.message.reply_text(
@@ -787,6 +799,7 @@ async def handle_messages(
                 "tr": "🇹🇷",
                 "ru": "🇷🇺",
                 "de": "🇩🇪",
+                "en": "🇬🇧",
             }
 
             lines = []
