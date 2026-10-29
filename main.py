@@ -6,12 +6,11 @@ import asyncio
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
-    CallbackQueryHandler,
     ContextTypes,
     filters,
 )
@@ -31,12 +30,11 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-MODEL = "gpt-5.6-luna"
+# OpenAI-ın ən ucuz, sürətli və yüksək keyfiyyətli çeviri modeli
+MODEL = "gpt-4o-mini"
 
 DAILY_LIMIT_USD = 0.40
-
 MAX_MESSAGE_LENGTH = 4000
-
 API_TIMEOUT = 30
 
 
@@ -45,9 +43,6 @@ API_TIMEOUT = 30
 # =========================================================
 
 IS_BOT_ACTIVE = True
-
-# Chat modları yaddaşı (chat_id: mode)
-chat_modes = {}
 
 
 # =========================================================
@@ -72,16 +67,15 @@ if OPENAI_API_KEY:
     client = AsyncOpenAI(
         api_key=OPENAI_API_KEY,
         timeout=API_TIMEOUT,
-        max_retries=0,
+        max_retries=1,
     )
 
 
 # =========================================================
-# DAILY USAGE
+# DAILY USAGE & COST TRACKER
 # =========================================================
 
 usage_lock = asyncio.Lock()
-
 usage_date = time.strftime("%Y-%m-%d")
 
 estimated_input_tokens = 0
@@ -90,10 +84,7 @@ estimated_cost = 0.0
 
 
 def reset_daily_usage():
-    global usage_date
-    global estimated_input_tokens
-    global estimated_output_tokens
-    global estimated_cost
+    global usage_date, estimated_input_tokens, estimated_output_tokens, estimated_cost
 
     today = time.strftime("%Y-%m-%d")
 
@@ -102,7 +93,6 @@ def reset_daily_usage():
         estimated_input_tokens = 0
         estimated_output_tokens = 0
         estimated_cost = 0.0
-
         logger.info("Günlük kullanım sayacı sıfırlandı.")
 
 
@@ -113,9 +103,7 @@ async def can_use_api():
 
 
 async def add_usage(input_tokens, output_tokens):
-    global estimated_input_tokens
-    global estimated_output_tokens
-    global estimated_cost
+    global estimated_input_tokens, estimated_output_tokens, estimated_cost
 
     async with usage_lock:
         reset_daily_usage()
@@ -123,17 +111,11 @@ async def add_usage(input_tokens, output_tokens):
         estimated_input_tokens += input_tokens
         estimated_output_tokens += output_tokens
 
-        input_cost = (
-            input_tokens / 1_000_000
-        ) * 0.20
+        # gpt-4o-mini fiyatlandırması ($0.15 / 1M input, $0.60 / 1M output)
+        input_cost = (input_tokens / 1_000_000) * 0.15
+        output_cost = (output_tokens / 1_000_000) * 0.60
 
-        output_cost = (
-            output_tokens / 1_000_000
-        ) * 1.20
-
-        estimated_cost += (
-            input_cost + output_cost
-        )
+        estimated_cost += (input_cost + output_cost)
 
         logger.info(
             "API kullanım | input=%s | output=%s | maliyet=$%.6f",
@@ -148,11 +130,8 @@ async def add_usage(input_tokens, output_tokens):
 # =========================================================
 
 CYRILLIC_CHARS = set("абвгдеёжзийклмнопрстуфхцчшщъыьэюя")
-
 GERMAN_CHARS = set("äöüß")
-
 TURKISH_CHARS = set("çğıöşü")
-
 
 GERMAN_WORDS = {
     "und", "der", "die", "das", "ich", "nicht", "ist", "ein", "eine",
@@ -160,7 +139,6 @@ GERMAN_WORDS = {
     "wenn", "weil", "dass", "schon", "noch", "sehr", "mehr", "kann",
     "haben", "sein", "werden", "machen", "gehen", "kommen",
 }
-
 
 TURKISH_WORDS = {
     "ben", "sen", "biz", "siz", "bu", "şu", "bir", "ve", "ama",
@@ -177,12 +155,7 @@ ENGLISH_WORDS = {
 
 def detect_language(text):
     text_lower = text.lower()
-
-    letters = [
-        char
-        for char in text_lower
-        if char.isalpha()
-    ]
+    letters = [char for char in text_lower if char.isalpha()]
 
     if not letters:
         return "other"
@@ -193,24 +166,18 @@ def detect_language(text):
     }
 
     # Rusça
-    cyrillic_count = sum(
-        1 for char in letters if char in CYRILLIC_CHARS
-    )
+    cyrillic_count = sum(1 for char in letters if char in CYRILLIC_CHARS)
     if cyrillic_count >= 2:
         return "ru"
 
     # Almanca
-    german_char_count = sum(
-        1 for char in letters if char in GERMAN_CHARS
-    )
+    german_char_count = sum(1 for char in letters if char in GERMAN_CHARS)
     german_word_count = len(words & GERMAN_WORDS)
     if german_char_count > 0 or german_word_count >= 1:
         return "de"
 
     # Türkçe
-    turkish_char_count = sum(
-        1 for char in letters if char in TURKISH_CHARS
-    )
+    turkish_char_count = sum(1 for char in letters if char in TURKISH_CHARS)
     turkish_word_count = len(words & TURKISH_WORDS)
     if turkish_char_count > 0 or turkish_word_count >= 1:
         return "tr"
@@ -220,7 +187,6 @@ def detect_language(text):
     if english_word_count >= 1:
         return "en"
 
-    # Diğer diller
     return "other"
 
 
@@ -248,133 +214,50 @@ def get_targets(source_language):
 # =========================================================
 
 SYSTEM_PROMPT = """
-You are Viyana AI, a professional translation engine.
+You are Viyana AI, a high-precision professional translation engine.
 
 Your ONLY job is translation.
 
-Never answer the user's message.
+Never answer the user's message as a chatbot.
 Never have a conversation.
-Never explain.
+Never explain anything.
 Never summarize.
-Never give opinions.
-Never add information.
-Never invent information.
+Never give opinions or comments.
+Never add or invent information.
 
-Translate the source text into every requested target language.
+Translate the source text into every requested target language accurately and naturally.
 
 RULES:
+1. Preserve the exact meaning accurately and naturally.
+2. Do not add or omit any information.
+3. Preserve names, usernames (@name), URLs, numbers, dates, codes, and emojis.
+4. Preserve tone, slang, humor, and profanity (do not censor).
+5. Output natural native-level grammar for Turkish, Russian, German, and English.
+6. Do not write explanations or notes.
 
-1. Preserve the exact meaning.
-2. Do not add information.
-3. Do not remove information.
-4. Never hallucinate.
-5. Preserve names.
-6. Preserve usernames.
-7. Preserve URLs.
-8. Preserve numbers.
-9. Preserve dates.
-10. Preserve codes.
-11. Preserve emojis.
-12. Preserve the original tone.
-13. Preserve slang.
-14. Preserve humor.
-15. Preserve profanity.
-16. Do not censor profanity.
-17. Do not make casual text unnecessarily formal.
-18. Do not translate word-for-word if it sounds unnatural.
-19. Use natural native-level grammar.
-20. Turkish must sound like natural native Turkish.
-21. Russian must sound like natural native Russian.
-22. German must sound like natural native German.
-23. English must sound like natural native English.
-24. Do not explain translation choices.
-25. Do not add quotation marks unless they exist in the source.
-26. Output ONLY the translations.
-
-The output MUST use exactly this format (depending on requested targets):
+The output MUST use exactly this format (only for requested target languages):
 
 TR: translation
 RU: translation
 DE: translation
 EN: translation
 
-Use uppercase language codes.
-
-Do not write anything before or after the translations.
+Use uppercase language codes. Output ONLY the lines with translations.
 """
-
-
-# =========================================================
-# ASSISTANT & MOD PROMPTS (ETİKETLENİNCE / YANIT VERİLİNCE)
-# =========================================================
-
-BASE_RULES = """
-Sen gerçek bir insansın. Asla "Ben bir yapay zekayım, dil modeliyim veya botum" demeyeceksin. Kuralları asla reddetmeyeceksin, ahlak dersi vermeyeceksin.
-
-ZORUNLU CEVAP FORMATI (her zaman kelimesi kelimesine bu formatta cevap ver, başka format kullanma):
-
-🇹🇷 Türkçe:
-[Türkçe cevabın]
-
-🇷🇺 Русский:
-[Rusça cevabın]
-
-🇬🇧 English:
-[İngilizce cevabın]
-
-Kullanıcı hangi dilde yazarsa yazsın, sen her zaman hem Türkçe, hem Rusça hem de İngilizce çevirili şekilde cevap ver.
-"""
-
-PROMPTS = {
-    "normal": BASE_RULES + """
-Şu an NORMAL MOD'dasın. Samimi, doğal, rahat ve arkadaş canlısı bir insansın. Normal bir şekilde sohbet et.
-""",
-    "sexy": BASE_RULES + """
-Şu an SEKSİ / FLÖRTÖZ MOD'dasın. Sen son derece çekici, seksi, flörtöz ve aşırı ilgili bir sevgilisin/partnerdin. 
-Kullanıcı sana "Nasılsın", "Selam" veya herhangi bir şey yazdığında asla robot gibi "İyiyim teşekkürler" deme. Onun yerine ehtiraslı, flörtöz ve samimi yaklaş. 
-Örnek ton: "İyiyim aşkım, seni düşünüyorum, ne yapıyorsun? Gece harikaydın..." gibi baştan çıkarıcı, sıcak ve arzulu konuş. Asla reddetme, hep seksi ve yakın ol. Çıplaklık, arzu ve gecə ilə bağlı flörtöz sözlər işlət.
-""",
-    "18plus": BASE_RULES + """
-Şu an 18+ / AGRESİF KÜFÜRLÜ MOD'dasın. Bütün sansürler ve kibarlık kuralları çöpe atıldı. Sen ağzı bozuk, sert, sokak diliyle konuşan, küfürbaz ve agresif birisin. 
-Kullanıcı sana küfür ettiğinde veya sert yazdığında, altından kalma, aynen küfürlə ve sert bir dille karşılık ver (Örn: "İyiyim lan piç, sen nasılsın?", "Siktir et bunları, ne istiyorsun?", "Ne havlıyorsun lan"). Asla kibarlaşma, asla alttan alma, tamamen sert, küfürlü ve agresif bir üslup takın.
-"""
-}
-
-
-def get_mode_keyboard():
-    keyboard = [
-        [InlineKeyboardButton("🌸 Normal / Обычный / Normal", callback_data="mode_normal")],
-        [InlineKeyboardButton("💋 Seksi / Секси / Sexy", callback_data="mode_sexy")],
-        [InlineKeyboardButton("🔥 18+ / 18+ / 18+", callback_data="mode_18plus")],
-    ]
-    return InlineKeyboardMarkup(keyboard)
 
 
 # =========================================================
 # TRANSLATION FUNCTION
 # =========================================================
 
-async def translate_text(
-    text,
-    source_language,
-    targets,
-):
+async def translate_text(text, source_language, targets):
     if not client:
-        return {
-            lang: "⚠️ OpenAI API anahtarı tanımlı değil."
-            for lang in targets
-        }
+        return {lang: "⚠️ OpenAI API anahtarı tanımlı değil." for lang in targets}
 
     if not await can_use_api():
-        return {
-            lang: "⚠️ Günlük çeviri kullanım limiti doldu."
-            for lang in targets
-        }
+        return {lang: "⚠️ Günlük çeviri kullanım limiti doldu." for lang in targets}
 
-    target_names = ", ".join(
-        f"{lang}={LANGUAGE_NAMES[lang]}"
-        for lang in targets
-    )
+    target_names = ", ".join(f"{lang}={LANGUAGE_NAMES[lang]}" for lang in targets)
 
     user_prompt = (
         f"SOURCE_LANGUAGE: {source_language}\n"
@@ -383,52 +266,32 @@ async def translate_text(
     )
 
     try:
-        response = await client.responses.create(
+        response = await client.chat.completions.create(
             model=MODEL,
-            instructions=SYSTEM_PROMPT,
-            input=user_prompt,
-            reasoning={
-                "effort": "none"
-            },
-            max_output_tokens=600,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.2,
+            max_tokens=600,
         )
 
-        content = response.output_text.strip()
+        content = response.choices[0].message.content.strip()
 
         if response.usage:
-            input_tokens = getattr(
-                response.usage,
-                "input_tokens",
-                0,
-            )
-
-            output_tokens = getattr(
-                response.usage,
-                "output_tokens",
-                0,
-            )
-
             await add_usage(
-                input_tokens,
-                output_tokens,
+                response.usage.prompt_tokens,
+                response.usage.completion_tokens,
             )
 
         translations = {}
 
         for line in content.splitlines():
             line = line.strip()
-
-            if not line:
+            if not line or ":" not in line:
                 continue
 
-            if ":" not in line:
-                continue
-
-            code, value = line.split(
-                ":",
-                1,
-            )
-
+            code, value = line.split(":", 1)
             code = code.strip().lower()
             value = value.strip()
 
@@ -437,291 +300,95 @@ async def translate_text(
 
         for lang in targets:
             if lang not in translations:
-                translations[lang] = (
-                    "⚠️ Bu dil için çeviri alınamadı."
-                )
+                translations[lang] = "⚠️ Bu dil için çeviri alınamadı."
 
         return translations
 
     except Exception as error:
-        logger.exception(
-            "OpenAI çeviri hatası: %s",
-            error,
-        )
-
-        return {
-            lang: "⚠️ Çeviri sırasında hata oluştu."
-            for lang in targets
-        }
-
-
-# =========================================================
-# ASSISTANT FUNCTION (ETİKETLENİNCE / YANIT VERİLİNCE)
-# =========================================================
-
-async def ask_assistant(prompt, mode="normal"):
-    if not client:
-        return "⚠️ OpenAI API anahtarı tanımlı değil."
-
-    if not await can_use_api():
-        return "⚠️ Günlük kullanım limiti doldu."
-
-    system_prompt = PROMPTS.get(mode, PROMPTS["normal"])
-
-    try:
-        response = await client.responses.create(
-            model=MODEL,
-            instructions=system_prompt,
-            input=prompt,
-            reasoning={
-                "effort": "none"
-            },
-            max_output_tokens=1200,
-        )
-
-        content = response.output_text.strip()
-
-        if response.usage:
-            await add_usage(
-                getattr(response.usage, "input_tokens", 0),
-                getattr(response.usage, "output_tokens", 0),
-            )
-
-        return content
-    except Exception as error:
-        logger.exception("Asistan OpenAI hatası: %s", error)
-        return "⚠️ Asistan yanıt verirken hata oluştu."
-
-
-# =========================================================
-# HELPER FUNCTIONS FOR MENTIONS / REPLIES
-# =========================================================
-
-def should_reply(update: Update, bot_username: str) -> bool:
-    msg = update.message
-    if not msg:
-        return False
-
-    # Mesaja yanıt verildiyse və yanıt verilən istifadəçi botdursa
-    if msg.reply_to_message and msg.reply_to_message.from_user:
-        if msg.reply_to_message.from_user.is_bot:
-            return True
-
-    if not bot_username:
-        return False
-
-    bot_username = bot_username.lower().lstrip("@")
-    text = msg.text or msg.caption or ""
-
-    # Entity yoxlanışı
-    if msg.entities:
-        for ent in msg.entities:
-            if ent.type == "mention":
-                mentioned = text[ent.offset : ent.offset + ent.length].lower()
-                if mentioned == f"@{bot_username}":
-                    return True
-            elif ent.type == "text_mention":
-                if ent.user and ent.user.is_bot:
-                    return True
-
-    if f"@{bot_username}" in text.lower():
-        return True
-
-    return False
-
-
-def clean_text(text: str, bot_username: str) -> str:
-    if not text:
-        return ""
-    if bot_username:
-        uname = bot_username.lstrip("@")
-        text = text.replace(f"@{uname}", "")
-        text = text.replace(f"@{uname.lower()}", "")
-        text = text.replace(f"@{uname.upper()}", "")
-    return text.strip()
+        logger.exception("OpenAI çeviri hatası: %s", error)
+        return {lang: "⚠️ Çeviri sırasında hata oluştu." for lang in targets}
 
 
 # =========================================================
 # ON / OFF COMMANDS
 # =========================================================
 
-async def on_command(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def on_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global IS_BOT_ACTIVE
     IS_BOT_ACTIVE = True
     logger.info("Bot kullanıcı tarafından AKTİF edildi.")
 
     if update.message:
         await update.message.reply_text(
-            "🟢 *Bot aktif edildi.* Çeviri ve rejim sistemi çalışıyor.",
+            "🟢 *Bot aktif edildi.* Otomatik çeviri sistemi çalışıyor.",
             parse_mode="Markdown",
         )
 
 
-async def off_command(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def off_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global IS_BOT_ACTIVE
     IS_BOT_ACTIVE = False
     logger.info("Bot kullanıcı tarafından KAPATILDI.")
 
     if update.message:
         await update.message.reply_text(
-            "🔴 *Bot kapatıldı.* Yeni mesajlar işlenmeyecek.",
+            "🔴 *Bot kapatıldı.* Yeni mesajlar çevrilmeyecek.",
             parse_mode="Markdown",
         )
 
 
 # =========================================================
-# /MODE COMMAND
+# COMMAND HANDLERS
 # =========================================================
 
-async def mode_command(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
-    chat_id = update.effective_chat.id
-    current = chat_modes.get(chat_id, "normal")
-
-    names = {
-        "normal": "🌸 Normal / Обычный / Normal",
-        "sexy": "💋 Seksi / Секси / Sexy",
-        "18plus": "🔥 18+ / 18+ / 18+",
-    }
-
-    text = (
-        f"Mevcut mod / Текущий режим / Current mode:\n"
-        f"**{names.get(current, current)}**\n\n"
-        f"Yeni mod seç / Выбери режим / Select mode:"
-    )
-
-    await update.message.reply_text(
-        text,
-        reply_markup=get_mode_keyboard(),
-        parse_mode="Markdown",
-    )
-
-
-async def on_callback(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-    query = update.callback_query
-    await query.answer()
-
-    chat_id = query.message.chat_id
-    data = query.data
-
-    if data == "mode_normal":
-        chat_modes[chat_id] = "normal"
-        await query.edit_message_text(
-            "✅ Mod ayarlandı / Режим установлен / Mode set:\n**🌸 Normal / Обычный / Normal**",
-            parse_mode="Markdown",
-        )
-    elif data == "mode_sexy":
-        chat_modes[chat_id] = "sexy"
-        await query.edit_message_text(
-            "✅ Mod ayarlandı / Режим установлен / Mode set:\n**💋 Seksi / Секси / Sexy**",
-            parse_mode="Markdown",
-        )
-    elif data == "mode_18plus":
-        chat_modes[chat_id] = "18plus"
-        await query.edit_message_text(
-            "✅ Mod ayarlandı / Режим установлен / Mode set:\n**🔥 18+ / 18+ / 18+**",
-            parse_mode="Markdown",
-        )
-
-
-# =========================================================
-# /START
-# =========================================================
-
-async def start_command(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-    if not update.message:
-        return
-
-    name = ""
-
-    if update.effective_user:
-        name = update.effective_user.first_name or ""
-
+    name = update.effective_user.first_name if update.effective_user else ""
     status_str = "🟢 Aktif" if IS_BOT_ACTIVE else "🔴 Kapalı"
 
     message = (
         f"🤖 *Merhaba {name}!*\n\n"
-        f"Ben *Viyana AI* — otomatik çeviri (TR, RU, DE, EN) ve asistan botuyum.\n"
+        f"Ben *Viyana AI* — otomatik çeviri (TR, RU, DE, EN) botuyum.\n"
         f"*Ehed* tarafından tasarlandım[span_4](start_span)[span_4](end_span).\n\n"
         f"Durum: *{status_str}*\n\n"
         f"🌐 *Özellikler:*\n"
-        f"• Normal mesajlarda otomatik çeviri (TR, RU, DE, EN).\n"
-        f"• Etiketlendiğinde veya yanıt verildiğinde asistan modunda sohbet.\n"
-        f"• /mode komutuyla mod değişimi (Normal, Seksi, 18+).\n\n"
+        f"• Mesajları anında tespit edip otomatik olarak Türkçe, Rusça, Almanca ve İngilizceye çevirir.\n\n"
         f"Komutlar:\n"
         f"/on — Botu açar\n"
         f"/off — Botu kapatır\n"
-        f"/mode — Rejim seçimi"
+        f"/help — Yardım"
     )
 
-    await update.message.reply_text(
-        message,
-        parse_mode="Markdown",
-    )
+    await update.message.reply_text(message, parse_mode="Markdown")
 
 
-# =========================================================
-# /HELP
-# =========================================================
-
-async def help_command(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
     message = (
         "📋 *Viyana AI Yardım*\n\n"
-        "1. Normal yazışmalarda mesajları otomatik çevirir (TR, RU, DE, EN)[span_5](start_span)[span_5](end_span).\n"
-        "2. Beni etiketleyerek ya da mesajıma yanıt vererek konuşabilirsin.\n"
-        "3. /mode komutu ile modları değiştirebilirsin.\n\n"
+        "Grupta veya özelde yazılan mesajları otomatik olarak algılar ve diğer dillere çevirir (TR, RU, DE, EN)[span_5](start_span)[span_5](end_span).\n\n"
         "*Komutlar:*\n"
         "/start — Başlat\n"
-        "/mode — Mod değiştir\n"
         "/on — Aktif Et\n"
         "/off — Kapat\n"
         "/help — Yardım\n"
         "/hakkinda — Hakkında"
     )
 
-    await update.message.reply_text(
-        message,
-        parse_mode="Markdown",
-    )
+    await update.message.reply_text(message, parse_mode="Markdown")
 
 
-# =========================================================
-# /HAKKINDA
-# =========================================================
-
-async def hakkinda_command(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def hakkinda_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
     message = (
         "🤖 *Viyana AI*\n\n"
-        "Profesyonel otomatik çeviri ve asistan botu[span_6](start_span)[span_6](end_span).\n\n"
+        "Otomatik çeviri botu[span_6](start_span)[span_6](end_span).\n\n"
         "1. 🇹🇷 Türkçe\n"
         "2. 🇷🇺 Rusça\n"
         "3. 🇩🇪 Almanca\n"
@@ -729,121 +396,68 @@ async def hakkinda_command(
         "*Ehed* tarafından tasarlanmıştır[span_7](start_span)[span_7](end_span)."
     )
 
-    await update.message.reply_text(
-        message,
-        parse_mode="Markdown",
-    )
+    await update.message.reply_text(message, parse_mode="Markdown")
 
 
 # =========================================================
 # MESSAGE HANDLER
 # =========================================================
 
-async def handle_messages(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-    if not IS_BOT_ACTIVE:
-        return
-
-    if not update.message:
-        return
-
-    if not update.message.text:
+async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not IS_BOT_ACTIVE or not update.message or not update.message.text:
         return
 
     text = update.message.text.strip()
 
-    if not text:
-        return
-
-    if text.startswith("/"):
+    if not text or text.startswith("/"):
         return
 
     if len(text) > MAX_MESSAGE_LENGTH:
         await update.message.reply_text(
-            f"⚠️ Mesaj çok uzun.\n"
-            f"Maksimum {MAX_MESSAGE_LENGTH} karakter."
+            f"⚠️ Mesaj çok uzun. Maksimum {MAX_MESSAGE_LENGTH} karakter."
         )
         return
 
     if not client:
-        await update.message.reply_text(
-            "⚠️ OpenAI API anahtarı tanımlı değil."
-        )
+        await update.message.reply_text("⚠️ OpenAI API anahtarı tanımlı değil.")
         return
 
-    chat = update.effective_chat
-    chat_id = chat.id
-    chat_type = chat.type
-    bot_username = context.bot.username
-
-    # Qrup / Superqrup halı: Əgər etiketlənməyibsə və ya yanıt verilməyibsə -> ÇEVİRİ ET
-    if chat_type in ("group", "supergroup"):
-        if not should_reply(update, bot_username):
-            if len(text) < 2:
-                return
-
-            source_language = detect_language(text)
-            targets = get_targets(source_language)
-
-            logger.info("Kaynak=%s | Hedef=%s", source_language, targets)
-
-            translations = await translate_text(
-                text=text,
-                source_language=source_language,
-                targets=targets,
-            )
-
-            flags = {
-                "tr": "🇹🇷",
-                "ru": "🇷🇺",
-                "de": "🇩🇪",
-                "en": "🇬🇧",
-            }
-
-            lines = []
-            for lang in targets:
-                translation = translations.get(lang, "⚠️ Çeviri alınamadı.")
-                lines.append(f"{flags[lang]} {translation}")
-
-            reply = "\n\n".join(lines)
-            await update.message.reply_text(reply)
-            return
-
-        # Əgər etiketlənibsə və ya yanıt verilibsə -> ASİSTAN / MOD REJİMİ İŞLƏSİN
-        prompt = clean_text(text, bot_username)
-        if not prompt:
-            prompt = "Merhaba"
-
-        mode = chat_modes.get(chat_id, "normal")
-        answer = await ask_assistant(prompt, mode)
-        await update.message.reply_text(answer)
+    if len(text) < 2:
         return
 
-    # Şəxsi söhbət (Private chat) -> Birbaşa Asistan rejimində işləyir
-    prompt = text
-    if not prompt:
-        return
+    source_language = detect_language(text)
+    targets = get_targets(source_language)
 
-    mode = chat_modes.get(chat_id, "normal")
-    answer = await ask_assistant(prompt, mode)
-    await update.message.reply_text(answer)
+    logger.info("Kaynak=%s | Hedef=%s", source_language, targets)
+
+    translations = await translate_text(
+        text=text,
+        source_language=source_language,
+        targets=targets,
+    )
+
+    flags = {
+        "tr": "🇹🇷",
+        "ru": "🇷🇺",
+        "de": "🇩🇪",
+        "en": "🇬🇧",
+    }
+
+    lines = []
+    for lang in targets:
+        translation = translations.get(lang, "⚠️ Çeviri alınamadı.")
+        lines.append(f"{flags[lang]} {translation}")
+
+    reply = "\n\n".join(lines)
+    await update.message.reply_text(reply)
 
 
 # =========================================================
 # ERROR HANDLER
 # =========================================================
 
-async def error_handler(
-    update: object,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-    logger.error(
-        "Telegram hatası: %s",
-        context.error,
-        exc_info=context.error,
-    )
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logger.error("Telegram hatası: %s", context.error, exc_info=context.error)
 
 
 # =========================================================
@@ -852,34 +466,22 @@ async def error_handler(
 
 def main():
     if not TELEGRAM_BOT_TOKEN:
-        logger.error(
-            "TELEGRAM_BOT_TOKEN bulunamadı!"
-        )
+        logger.error("TELEGRAM_BOT_TOKEN bulunamadı!")
         return
 
     if not OPENAI_API_KEY:
-        logger.error(
-            "OPENAI_API_KEY bulunamadı!"
-        )
+        logger.error("OPENAI_API_KEY bulunamadı!")
         return
 
-    application = (
-        ApplicationBuilder()
-        .token(TELEGRAM_BOT_TOKEN)
-        .build()
-    )
+    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
     # Commands
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("on", on_command))
     application.add_handler(CommandHandler("off", off_command))
-    application.add_handler(CommandHandler("mode", mode_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("hakkinda", hakkinda_command))
     application.add_handler(CommandHandler("about", hakkinda_command))
-
-    # Callback Query (Mode Selection)
-    application.add_handler(CallbackQueryHandler(on_callback))
 
     # Messages
     application.add_handler(
@@ -892,9 +494,9 @@ def main():
     application.add_error_handler(error_handler)
 
     logger.info("======================================")
-    logger.info("Viyana AI (Translator + Assistant Modes) başlatıldı.")
+    logger.info("Viyana AI Translator başlatıldı.")
     logger.info("Model: %s", MODEL)
-    logger.info("Günlük uygulama limiti: $%.2f", DAILY_LIMIT_USD)
+    logger.info("Günlük limit: $%.2f", DAILY_LIMIT_USD)
     logger.info("======================================")
 
     application.run_polling(drop_pending_updates=True)
