@@ -77,100 +77,32 @@ PROVIDERS = [
 ]
 
 # =========================================================
-# LANGUAGE DETECTION
-# =========================================================
-
-CYRILLIC_CHARS = set("абвгдеёжзийклмнопрстуфхцчшщъыьэюя")
-GERMAN_CHARS = set("äöüß")
-TURKISH_CHARS = set("çğıöşü")
-
-GERMAN_WORDS = {
-    "und", "der", "die", "das", "ich", "nicht", "ist", "ein", "eine",
-    "mit", "auf", "für", "von", "zu", "auch", "wie", "aber", "oder",
-    "wenn", "weil", "dass", "schon", "noch", "sehr", "mehr", "kann",
-}
-
-TURKISH_WORDS = {
-    "ben", "sen", "biz", "siz", "bu", "şu", "bir", "ve", "ama",
-    "için", "ile", "ne", "nasıl", "neden", "çok", "var", "yok",
-    "değil", "gibi", "daha", "şimdi", "bugün", "yarın", "merhaba",
-}
-
-ENGLISH_WORDS = {
-    "the", "and", "is", "to", "in", "it", "of", "you", "that", "he",
-    "was", "for", "on", "are", "with", "as", "his", "they", "at", "be",
-}
-
-def detect_language(text):
-    text_lower = text.lower()
-    letters = [char for char in text_lower if char.isalpha()]
-
-    if not letters:
-        return "other"
-
-    words = {word.strip(".,!?;:()[]{}\"'“”‘’") for word in text_lower.split()}
-
-    if sum(1 for char in letters if char in CYRILLIC_CHARS) >= 2:
-        return "ru"
-
-    if sum(1 for char in letters if char in GERMAN_CHARS) > 0 or len(words & GERMAN_WORDS) >= 1:
-        return "de"
-
-    if sum(1 for char in letters if char in TURKISH_CHARS) > 0 or len(words & TURKISH_WORDS) >= 1:
-        return "tr"
-
-    if len(words & ENGLISH_WORDS) >= 1:
-        return "en"
-
-    return "other"
-
-LANGUAGE_NAMES = {
-    "tr": "Turkish",
-    "ru": "Russian",
-    "de": "German",
-    "en": "English",
-}
-
-def get_targets(source_language):
-    all_langs = ["tr", "ru", "de", "en"]
-    if source_language in all_langs:
-        return [lang for lang in all_langs if lang != source_language]
-    return all_langs
-
-# =========================================================
-# SYSTEM PROMPT
+# SYSTEM PROMPT (ASCII/KLAVYE DÜZELTME VE DEYİM UYUMLU)
 # =========================================================
 
 SYSTEM_PROMPT = """
-You are Viyana AI, a high-precision professional translation engine.
+You are Viyana AI, a high-intelligence multi-lingual chat translation engine.
 
-Your ONLY job is translation.
+YOUR CORE RESPONSIBILITIES:
+1. Detect the true source language of SOURCE_TEXT (among Turkish, Russian, German, English).
+2. Translate the text ONLY into the remaining 3 target languages out of {TR, RU, DE, EN}.
+3. DO NOT output a translation line for the detected source language (e.g., if input is Turkish, NEVER output TR).
 
-Never answer the user's message as a chatbot.
-Never have a conversation.
-Never explain anything.
-Never summarize.
-Never give opinions, comments, or extra conversational phrases.
-Never add or invent information.
+CRITICAL INFORMAL & ASCII KEYBOARD HANDLING:
+1. ASCII / ENGLISH KEYBOARD CORRECTION: Users often type with standard English keyboards missing native characters (e.g., Turkish written using 'u' for 'ü', 'c' for 'ç', 'g' for 'ğ', 's' for 'ş', 'i' for 'ı', 'o' for 'ö', or using chat shortcuts like 'bise', 'diyemice', 'nasil', 'yapiom'). You MUST mentally reconstruct the true intended words and grammar before translating.
+2. IDIOMATIC & CONTEXTUAL TRANSLATION: NEVER perform literal word-for-word translations. Always capture the actual human intent, slang, chat metaphors, and humor.
+   - Example: "ortaligi duman ediyordu" / "ortalığı duman ediyordu" -> EN: "he was tearing it up / blowing everyone away" (NOT "smoking up the place").
+   - Example: "elin kizi" -> EN: "some random girl / a stranger's daughter".
+   - Example: "sen nasil guzel bir insansin oyle kral" -> EN: "What an awesome person you are, absolute legend!"
+3. PRESERVE ELEMENTS: Maintain all emojis, usernames (@user), links, codes, numbers, and original punctuation marks intact.
+4. NO CHATBOT BEHAVIOR: Output ONLY the requested translation lines. Do not converse, comment, or write intros/outros.
 
-Translate the source text into every requested target language with perfect natural native fluency.
-
-RULES:
-1. Preserve the exact meaning accurately, naturally, and idiomatically.
-2. Do not add, omit, or alter any information.
-3. Preserve names, usernames (@name), URLs, numbers, dates, codes, and emojis.
-4. Preserve tone, slang, humor, and profanity (do not censor).
-5. Output natural native-level grammar for Turkish, Russian, German, and English.
-6. Do not write explanations, greetings, or notes.
-
-The output MUST use exactly this format (only for requested target languages):
+OUTPUT FORMAT (Strictly output only lines for the remaining target languages):
 
 TR: translation
 RU: translation
 DE: translation
 EN: translation
-
-Use uppercase language codes. Output ONLY the lines with translations.
 """
 
 # =========================================================
@@ -202,13 +134,8 @@ async def request_translation_from_provider(provider, user_prompt):
         )
         return response.choices[0].message.content.strip()
 
-async def translate_text(text, source_language, targets):
-    target_names = ", ".join(f"{lang}={LANGUAGE_NAMES[lang]}" for lang in targets)
-    user_prompt = (
-        f"SOURCE_LANGUAGE: {source_language}\n"
-        f"TARGET_LANGUAGES: {target_names}\n\n"
-        f"SOURCE_TEXT:\n{text}"
-    )
+async def translate_text(text):
+    user_prompt = f"SOURCE_TEXT:\n{text}"
 
     content = None
     successful_provider = None
@@ -226,7 +153,7 @@ async def translate_text(text, source_language, targets):
             logger.warning("Provider %s başarısız oldu, sonraki servise geçiliyor. Hata: %s", provider["name"], error)
 
     if not content:
-        return {lang: "⚠️ Tüm çeviri servisleri geçici olarak yanıt vermiyor." for lang in targets}
+        return {}
 
     translations = {}
     for line in content.splitlines():
@@ -238,12 +165,8 @@ async def translate_text(text, source_language, targets):
         code = code.strip().lower()
         value = value.strip()
 
-        if code in targets and value:
+        if code in ["tr", "ru", "de", "en"] and value:
             translations[code] = value
-
-    for lang in targets:
-        if lang not in translations:
-            translations[lang] = "⚠️ Bu dil için çeviri alınamadı."
 
     return translations
 
@@ -306,19 +229,21 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⚠️ Mesaj çok uzun. Maksimum {MAX_MESSAGE_LENGTH} karakter.")
         return
 
-    source_language = detect_language(text)
-    targets = get_targets(source_language)
+    translations = await translate_text(text=text)
 
-    translations = await translate_text(text=text, source_language=source_language, targets=targets)
+    if not translations:
+        return
 
     flags = {"tr": "🇹🇷", "ru": "🇷🇺", "de": "🇩🇪", "en": "🇬🇧"}
     lines = []
-    for lang in targets:
-        translation = translations.get(lang, "⚠️ Çeviri alınamadı.")
-        lines.append(f"{flags[lang]} {translation}")
+    
+    for lang in ["tr", "ru", "de", "en"]:
+        if lang in translations:
+            lines.append(f"{flags[lang]} {translations[lang]}")
 
-    reply = "\n\n".join(lines)
-    await update.message.reply_text(reply)
+    if lines:
+        reply = "\n\n".join(lines)
+        await update.message.reply_text(reply)
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error("Telegram hatası: %s", context.error, exc_info=context.error)
