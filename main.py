@@ -1,5 +1,5 @@
 # =========================================================
-# VİYANA AI - ÇOK DİLLİ ÇEVİRİ BOTU (DÜZƏLDİLMİŞ VERSİYON)
+# VİYANA AI - ÇOK DİLLİ ÇEVİRİ BOTU (TAM VE GÜNCELLENMİŞ VERSİYON)
 # =========================================================
 
 import os
@@ -38,7 +38,7 @@ logging.basicConfig(
 logger = logging.getLogger("viyana_ai")
 
 # =========================================================
-# FAILOVER PROVIDERS (DOĞRULANMIŞ MODELLER)
+# FAILOVER PROVIDERS (DOĞRULANMIŞ VE GÜNCELLENMİŞ MODELLER)
 # =========================================================
 
 PROVIDERS = [
@@ -46,13 +46,7 @@ PROVIDERS = [
         "name": "Groq",
         "env_key": "GROQ_API_KEY",
         "base_url": "https://api.groq.com/openai/v1",
-        "model": "llama-3.1-8b-instant",
-    },
-    {
-        "name": "Gemini",
-        "env_key": "GEMINI_API_KEY",
-        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-        "model": "gemini-1.5-flash",
+        "model": "llama-3.3-70b-versatile",
     },
     {
         "name": "OpenAI",
