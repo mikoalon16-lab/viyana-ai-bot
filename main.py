@@ -1,5 +1,5 @@
 # =========================================================
-# VİYANA AI - ÇOK DİLLİ ÇEVİRİ BOTU (GÜNCELLENMİŞ VERSİYON)
+# VİYANA AI - ÇOK DİLLİ ÇEVİRİ BOTU (DÜZƏLDİLMİŞ VERSİYON)
 # =========================================================
 
 import os
@@ -84,4 +84,191 @@ PROVIDERS = [
 # SYSTEM PROMPT (KATI VE DOĞAL ÇEVİRİ KURALLARI)
 # =========================================================
 
-SYSTEM_PRO
+SYSTEM_PROMPT = """
+You are Viyana AI, an elite, context-aware multi-lingual chat translation and localization engine built for gaming and chat communities.
+
+YOUR CORE RESPONSIBILITIES:
+1. Detect the true source language of SOURCE_TEXT (among Turkish, Russian, German, English).
+2. Translate the text ONLY into the remaining 3 target languages out of {TR, RU, DE, EN}.
+3. DO NOT output a translation line for the detected source language.
+
+GOLDEN RULES FOR ACCURACY (NO NONSENSE TRANSLATIONS):
+1. ABSOLUTELY NO LITERAL (WORD-FOR-WORD) TRANSLATIONS: Never translate sentences piece by piece. Understand the holistic human meaning, slang, gamer terminology, and context first, then express it naturally in the target language as a native speaker would chat.
+2. GAMING & SLANG CONTEXT: 
+   - Words like "enerji" in gaming contexts mean energy points/resources, not abstract physics energy.
+   - Phrases like "ayar çekeyim", "zıvanadan çıktı", "ortalığı duman ediyordu" must be translated using proper idiomatic equivalents in EN, RU, DE (e.g., "tweak this bot / get things straight", "gone off the rails").
+3. ASCII / KEYBOARD CORRECTION: Correct unpunctuated or missing-character chat Turkish smoothly (e.g., 'u' -> 'ü', 'c' -> 'ç').
+4. PRESERVE ELEMENTS: Keep all emojis, usernames (@user), links, codes, numbers, and punctuation intact.
+5. NO CHATBOT CHATTER: Output ONLY the requested translation lines in the exact format specified below. No intro, no outro, no comments.
+
+OUTPUT FORMAT (Strictly output only lines for the remaining target languages):
+
+TR: translation
+RU: translation
+DE: translation
+EN: translation
+"""
+
+# =========================================================
+# MULTI-PROVIDER TRANSLATION EXECUTION
+# =========================================================
+
+async def request_translation_from_provider(provider, user_prompt):
+    api_key = os.getenv(provider["env_key"])
+    if not api_key:
+        return None
+
+    kwargs = {
+        "api_key": api_key,
+        "timeout": 15,
+        "max_retries": 0,
+    }
+    if provider["base_url"]:
+        kwargs["base_url"] = provider["base_url"]
+
+    async with AsyncOpenAI(**kwargs) as client:
+        response = await client.chat.completions.create(
+            model=provider["model"],
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.1,
+            max_tokens=1000,
+        )
+        return response.choices[0].message.content.strip()
+
+async def translate_text(text):
+    user_prompt = f"SOURCE_TEXT:\n{text}"
+
+    content = None
+    successful_provider = None
+
+    for provider in PROVIDERS:
+        try:
+            logger.info("Çeviri deneniyor provider=%s", provider["name"])
+            res = await request_translation_from_provider(provider, user_prompt)
+            if res and len(res) > 5:
+                content = res
+                successful_provider = provider["name"]
+                logger.info("Çeviri başarıyla tamamlandı via %s", successful_provider)
+                break
+        except Exception as error:
+            logger.warning("Provider %s başarısız oldu, sonraki servise geçiliyor. Hata: %s", provider["name"], error)
+
+    if not content:
+        return {}
+
+    translations = {}
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+
+        code, value = line.split(":", 1)
+        code = code.strip().lower()
+        value = value.strip()
+
+        if code in ["tr", "ru", "de", "en"] and value:
+            translations[code] = value
+
+    return translations
+
+# =========================================================
+# BOT COMMANDS & HANDLERS
+# =========================================================
+
+async def on_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global IS_BOT_ACTIVE
+    IS_BOT_ACTIVE = True
+    if update.message:
+        await update.message.reply_text("🟢 *Bot aktif edildi.* Otomatik çeviri çalışıyor.", parse_mode="Markdown")
+
+async def off_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global IS_BOT_ACTIVE
+    IS_BOT_ACTIVE = False
+    if update.message:
+        await update.message.reply_text("🔴 *Bot kapatıldı.*", parse_mode="Markdown")
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
+        return
+    name = update.effective_user.first_name if update.effective_user else ""
+    status_str = "🟢 Aktif" if IS_BOT_ACTIVE else "🔴 Kapalı"
+    message = (
+        f"🤖 *Merhaba {name}!*\n\n"
+        f"Ben *Viyana AI* — otomatik çoklu dil çeviri botuyum.\n"
+        f"*Ehed* tarafından tasarlandım.\n\n"
+        f"Durum: *{status_str}*\n\n"
+        f"Komutlar:\n"
+        f"/on — Botu açar\n"
+        f"/off — Botu kapatır\n"
+        f"/help — Yardım"
+    )
+    await update.message.reply_text(message, parse_mode="Markdown")
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
+        return
+    message = (
+        "📋 *Viyana AI Yardım*\n\n"
+        "Mesajları otomatik algılar ve diğer dillere (TR, RU, DE, EN) doğal şekilde çevirir.\n\n"
+        "*Komutlar:*\n"
+        "/start — Başlat\n"
+        "/on — Aktif Et\n"
+        "/off — Kapat\n"
+        "/help — Yardım"
+    )
+    await update.message.reply_text(message, parse_mode="Markdown")
+
+async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not IS_BOT_ACTIVE or not update.message or not update.message.text:
+        return
+
+    text = update.message.text.strip()
+    if not text or text.startswith("/") or len(text) < 2:
+        return
+
+    if len(text) > MAX_MESSAGE_LENGTH:
+        await update.message.reply_text(f"⚠️ Mesaj çok uzun. Maksimum {MAX_MESSAGE_LENGTH} karakter.")
+        return
+
+    translations = await translate_text(text=text)
+
+    if not translations:
+        return
+
+    flags = {"tr": "🇹🇷", "ru": "🇷🇺", "de": "🇩🇪", "en": "🇬🇧"}
+    lines = []
+    
+    for lang in ["tr", "ru", "de", "en"]:
+        if lang in translations:
+            lines.append(f"{flags[lang]} {translations[lang]}")
+
+    if lines:
+        reply = "\n\n".join(lines)
+        await update.message.reply_text(reply)
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logger.error("Telegram hatası: %s", context.error, exc_info=context.error)
+
+def main():
+    if not TELEGRAM_BOT_TOKEN:
+        logger.error("TELEGRAM_BOT_TOKEN bulunamadı!")
+        return
+
+    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("on", on_command))
+    application.add_handler(CommandHandler("off", off_command))
+    application.add_handler(CommandHandler("help", help_command))
+
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))
+    application.add_error_handler(error_handler)
+
+    logger.info("Viyana AI (Otomatik Yedeklemeli Çeviri Sistemi) başlatıldı.")
+    application.run_polling(drop_pending_updates=True)
+
+if __name__ == "__main__":
+    main()
