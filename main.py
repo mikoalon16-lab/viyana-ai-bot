@@ -66,29 +66,29 @@ KNOWN_NAMES = [
 ]
 
 GLOSSARY = """
-Oyun baglami icin terim tercihleri (TR / RU / EN):
-- taht (taç degil) / трон / throne
-- sunucular arasi savas / межсерверная битва (война) / cross-server war (battle)
-- ittifak / альянс / alliance
-- bolge / регион (территория) / region (territory)
-- lider / лидер / leader
-- elmaslar / алмазы / diamonds
-- taht sirasi (tahta cikma sirasi) / очередь за троном / throne queue (throne rotation)
+Oyun baglami icin terim tercihleri (TR / DE / EN):
+- taht (taç degil) / Thron / throne
+- sunucular arasi savas / Server-übergreifender Krieg (Kampf) / cross-server war (battle)
+- ittifak / Allianz / alliance
+- bolge / Region (Gebiet) / region (territory)
+- lider / Anführer (Leiter) / leader
+- elmaslar / Diamanten / diamonds
+- taht sirasi (tahta cikma sirasi) / Thron-Warteschlange (Thron-Rotation) / throne queue (throne rotation)
 Terimleri yalnizca baglam gercekten uyuyorsa kullan. Kaynakta olmayan oyun bilgisi ekleme.
 """
 
 SYSTEM_PROMPT = f"""
-You are Viyana AI, a careful Turkish-Russian-English chat translator for a gaming community.
+You are Viyana AI, a careful Turkish-German-English chat translator for a gaming community.
 
 SUPPORTED LANGUAGES:
 - Turkish (tr)
-- Russian (ru)
+- German (de)
 - English (en)
 
 TASK:
-Detect the language of SOURCE_TEXT (tr, ru, or en), then translate ONLY the current
+Detect the language of SOURCE_TEXT (tr, de, or en), then translate ONLY the current
 SOURCE_TEXT directly into the OTHER TWO supported languages.
-Do not use any unsupported language (such as German).
+Do not use any unsupported language (such as Russian).
 
 ABSOLUTE FIDELITY RULES:
 1. Preserve the full meaning and every piece of information in the source.
@@ -100,7 +100,7 @@ ABSOLUTE FIDELITY RULES:
 6. Preserve the speaker's tone: friendly, angry, joking, sarcastic, informal, etc.
 7. Translate idioms and slang by their actual meaning, not word-for-word, but
    never guess when the meaning is unclear. Keep the same ambiguity.
-8. Use natural everyday chat language used by native Turkish, Russian, and English speakers.
+8. Use natural everyday chat language used by native Turkish, German, and English speakers.
    Do not use stiff, bookish, machine-translated phrasing.
 9. Preserve names, usernames, alliance names, @mentions, links, numbers,
    emojis, and game labels. Do not translate or invent names.
@@ -108,7 +108,7 @@ ABSOLUTE FIDELITY RULES:
     Never silently change the meaning to "fix" a sentence.
 11. Use CONTEXT and REPLYING_TO only to understand references, slang, and
     omitted subjects. Translate SOURCE_TEXT only. Never translate the context.
-12. If the source is not clearly Turkish, Russian, or English, return source="unknown"
+12. If the source is not clearly Turkish, German, or English, return source="unknown"
     and translations={{}}. Do not guess a language.
 13. If a phrase is genuinely ambiguous, preserve that ambiguity rather than
     choosing an unsupported interpretation.
@@ -121,14 +121,14 @@ GAMING GLOSSARY:
 
 OUTPUT:
 Return only valid JSON with "source" and "translations" containing ONLY the two target languages:
-{{"source":"tr or ru or en or unknown","translations":{{"target_lang_1":"...","target_lang_2":"..."}}}}
+{{"source":"tr or de or en or unknown","translations":{{"target_lang_1":"...","target_lang_2":"..."}}}}
 No markdown and no commentary.
 """
 
-SUPPORTED_LANGS = ("tr", "ru", "en")
+SUPPORTED_LANGS = ("tr", "de", "en")
 LANG_FLAGS = {
     "tr": "🇹🇷",
-    "ru": "🇷🇺",
+    "de": "🇩🇪",
     "en": "🇬🇧",
 }
 
@@ -208,165 +208,4 @@ async def request_translation(provider, user_prompt):
 
     async with AsyncOpenAI(**client_kwargs) as client:
         response = await client.chat.completions.create(**params)
-        return (response.choices[0].message.content or "").strip()
-
-
-async def translate_text(user_prompt):
-    configured = [
-        provider for provider in PROVIDERS
-        if os.getenv(provider["env_key"])
-    ]
-
-    if not configured:
-        logger.error("Hicbir ceviri API anahtari tanimli degil.")
-        return None
-
-    for provider in configured:
-        try:
-            logger.info("Ceviri deneniyor: %s / %s", provider["name"], provider["model"])
-            raw = await request_translation(provider, user_prompt)
-            parsed = parse_output(raw)
-
-            if parsed:
-                targets = ",".join(parsed["translations"].keys())
-                logger.info(
-                    "Ceviri tamamlandi: provider=%s source=%s targets=%s",
-                    provider["name"], parsed["source"], targets
-                )
-                return parsed
-
-            logger.warning("%s gecerli ceviri JSON'u dondurmedi.", provider["name"])
-
-        except Exception as error:
-            logger.warning("Saglayici hatasi (%s): %s", provider["name"], error)
-
-    return None
-
-
-async def on_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global IS_BOT_ACTIVE
-    IS_BOT_ACTIVE = True
-    if update.message:
-        await update.message.reply_text(
-            "🟢 Viyana AI aktif. Türkçe ↔ Rusça ↔ İngilizce çeviri yapılıyor."
-        )
-
-
-async def off_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global IS_BOT_ACTIVE
-    IS_BOT_ACTIVE = False
-    if update.message:
-        await update.message.reply_text("🔴 Viyana AI durduruldu.")
-
-
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message:
-        return
-    name = update.effective_user.first_name if update.effective_user else ""
-    status = "🟢 Aktif" if IS_BOT_ACTIVE else "🔴 Kapalı"
-    await update.message.reply_text(
-        f"🤖 Merhaba {name}!\n\n"
-        "Ben Viyana AI — Türkçe, Rusça ve İngilizce sohbet çevirmeni.\n"
-        "Mesajları otomatik olarak diğer iki dile çeviririm.\n\n"
-        f"Durum: {status}\n\n"
-        "/on — Botu aç\n"
-        "/off — Botu kapat\n"
-        "/help — Yardım"
-    )
-
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message:
-        return
-    await update.message.reply_text(
-        "📋 Viyana AI 2.1\n\n"
-        "🇹🇷 Türkçe → 🇷🇺 Rusça + 🇬🇧 İngilizce\n"
-        "🇷🇺 Rusça → 🇹🇷 Türkçe + 🇬🇧 İngilizce\n"
-        "🇬🇧 İngilizce → 🇹🇷 Türkçe + 🇷🇺 Rusça\n\n"
-        "/start — Başlat\n"
-        "/on — Aktif et\n"
-        "/off — Kapat\n"
-        "/help — Yardım"
-    )
-
-
-async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.message
-
-    if not IS_BOT_ACTIVE or not msg or not msg.text:
-        return
-
-    if msg.from_user and msg.from_user.is_bot:
-        return
-
-    source_text = msg.text.strip()
-    if not source_text or source_text.startswith("/") or len(source_text) < 2:
-        return
-
-    if len(source_text) > MAX_MESSAGE_LENGTH:
-        await msg.reply_text(
-            f"⚠️ Mesaj çok uzun. Maksimum {MAX_MESSAGE_LENGTH} karakter."
-        )
-        return
-
-    chat_id = msg.chat_id
-    sender = msg.from_user.first_name if msg.from_user else "unknown"
-
-    reply_text = None
-    if msg.reply_to_message and msg.reply_to_message.text:
-        reply_text = msg.reply_to_message.text.strip()[:500]
-
-    user_prompt = build_user_prompt(
-        chat_id=chat_id,
-        sender=sender,
-        source_text=source_text,
-        reply_text=reply_text,
-    )
-
-    result = await translate_text(user_prompt)
-
-    # Yalnizca kullanicinin orijinal mesajini hafizaya ekle.
-    CHAT_HISTORY[chat_id].append(f"{sender}: {source_text[:500]}")
-
-    if not result:
-        logger.error("Ceviri yapilamadi; bos/uydurma bir ceviri gonderilmeyecek.")
-        return
-
-    lines = [
-        f"{LANG_FLAGS[lang]} {text}"
-        for lang, text in result["translations"].items()
-    ]
-    output = "\n".join(lines)
-
-    try:
-        await msg.reply_text(output)
-    except Exception as error:
-        logger.error("Telegram'a ceviri gonderilemedi: %s", error)
-
-
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    logger.error("Telegram hatasi: %s", context.error, exc_info=context.error)
-
-
-def main():
-    if not TELEGRAM_BOT_TOKEN:
-        logger.error("TELEGRAM_BOT_TOKEN bulunamadi! .env dosyasini kontrol et.")
-        return
-
-    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("on", on_command))
-    application.add_handler(CommandHandler("off", off_command))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages)
-    )
-    application.add_error_handler(error_handler)
-
-    logger.info("Viyana AI 2.1 baslatildi. Diller: Turkce <-> Rusca <-> Ingilizce")
-    application.run_polling(drop_pending_updates=True)
-
-
-if __name__ == "__main__":
-    main()
+        return (response
