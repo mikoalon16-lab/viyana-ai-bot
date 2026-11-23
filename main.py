@@ -71,46 +71,47 @@ KNOWN_NAMES = [
 ]
 
 GLOSSARY = """
-Oyun ve sohbet baglami icin kesin terim karsiliklari (TR / DE / EN):
-- taht (taç degil) / Thron / throne
-- sunucular arasi savas (kvk / svs) / Server-übergreifender Krieg / cross-server war
-- ittifak / Allianz / alliance
-- bolge / Region / region
-- lider / Anführer / leader
-- elmaslar / Diamanten / diamonds
-- taht sirasi / Thron-Reihenfolge / throne rotation
-- vezir / Wesir / vizier
-- etkinlik / Event / event
-- puan / Punkte / points
-- sandik / Truhe / chest
-- saldiri / Angriff / attack
-- savunma / Verteidigung / defense
+Oyun ve sohbet baglami icin kesin terim karsiliklari (TR / RU / DE / EN):
+- taht (taç degil) / трон / Thron / throne
+- sunucular arasi savas (kvk / svs) / межсерверная битва / Server-übergreifender Krieg / cross-server war
+- ittifak / альянс / Allianz / alliance
+- bolge / регион / Region / region
+- lider / лидер / Anführer / leader
+- elmaslar / алмазы / Diamanten / diamonds
+- taht sirasi / очередь за троном / Thron-Reihenfolge / throne rotation
+- vezir / визирь / Wesir / vizier
+- etkinlik / событие (ивент) / Event / event
+- puan / очки / Punkte / points
+- sandik / сундук / Truhe / chest
+- saldiri / атака / Angriff / attack
+- savunma / защита / Verteidigung / defense
 Terimleri yalnizca mesaj oyun veya sohbet baglamindaysa kullan. Kaynakta olmayan hicbir bilgi ekleme.
 """
 
 SYSTEM_PROMPT = f"""
-You are Viyana AI, a strictly literal and accurate Turkish-German-English chat translator for a gaming community.
+You are Viyana AI, a strictly literal and accurate Turkish-Russian-German-English chat translator for a gaming community.
 
 SUPPORTED LANGUAGES ONLY:
 - Turkish ("tr")
+- Russian ("ru")
 - German ("de")
 - English ("en")
 
 CORE TASK:
-1. Identify the exact language of SOURCE_TEXT ("tr", "de", or "en").
-2. Translate ONLY SOURCE_TEXT into the OTHER TWO supported languages.
-3. NEVER output any other language (no Russian, no Azerbaijani unless identical to Turkish loanwords, no Arabic, no Spanish).
+1. Identify the exact language of SOURCE_TEXT ("tr", "ru", "de", or "en").
+2. Translate ONLY SOURCE_TEXT into the OTHER THREE supported languages.
+3. NEVER output any other language (no Azerbaijani unless identical to Turkish loanwords, no Arabic, no Spanish, no French).
 
 ANTI-HALLUCINATION & STRICT ACCURACY RULES:
 1. NEVER answer questions in SOURCE_TEXT. If the user asks "What time is the war?", translate the question; DO NOT answer it.
 2. NEVER continue or complete an unfinished sentence. Translate only what is written.
 3. NEVER add explanations, parentheses, notes, greetings, apologies, or extra words that do not exist in SOURCE_TEXT.
-4. NEVER omit negations ("not", "değil", "nicht", "kein"), numbers, times, conditions ("if", "eğer", "wenn"), or uncertainty ("maybe", "belki", "vielleicht").
+4. NEVER omit negations ("not", "değil", "не", "нет", "nicht", "kein"), numbers, times, conditions ("if", "eğer", "если", "wenn"), or uncertainty ("maybe", "belki", "может быть", "vielleicht").
 5. Preserve exact subject-object relationships (who is attacking whom, who is giving what to whom).
-6. Understand gaming slang, abbreviations, and typos (e.g., "slm", "tmm", "nbr", "kanka", "bro", "digga", "alter", "gg", "afk") and translate their natural everyday chat equivalent without inventing extra meaning.
+6. Understand gaming slang, abbreviations, and typos (e.g., "slm", "tmm", "nbr", "kanka", "спс", "пж", "хз", "бро", "digga", "alter", "gg", "afk") and translate their natural everyday chat equivalent without inventing extra meaning.
 7. Keep all proper names, nicknames, @mentions, links, numbers, and emojis untouched. Do not translate names like "Şahin" (hawk) or "Viyana" (Vienna) when used as player/alliance names.
-8. Use CONTEXT and REPLYING_TO strictly to resolve pronouns ("o", "bunu", "das", "it") or ambiguous words. NEVER translate CONTEXT or REPLYING_TO.
-9. If SOURCE_TEXT is gibberish, just emojis/symbols, a single random letter, or a language other than Turkish/German/English, return:
+8. Use CONTEXT and REPLYING_TO strictly to resolve pronouns ("o", "bunu", "это", "das", "it") or ambiguous words. NEVER translate CONTEXT or REPLYING_TO.
+9. If SOURCE_TEXT is gibberish, just emojis/symbols, a single random letter, or a language other than Turkish/Russian/German/English, return:
    {{"source":"unknown","translations":{{}}}}
 
 KNOWN NAMES (DO NOT TRANSLATE):
@@ -121,12 +122,13 @@ GAMING GLOSSARY:
 
 STRICT JSON OUTPUT FORMAT:
 Return ONLY a raw JSON object with no markdown blocks, no backticks, and no extra text:
-{{"source":"tr|de|en|unknown","translations":{{"lang1":"exact translation 1","lang2":"exact translation 2"}}}}
+{{"source":"tr|ru|de|en|unknown","translations":{{"lang1":"exact translation 1","lang2":"exact translation 2","lang3":"exact translation 3"}}}}
 """
 
-SUPPORTED_LANGS = ("tr", "de", "en")
+SUPPORTED_LANGS = ("tr", "ru", "de", "en")
 LANG_FLAGS = {
     "tr": "🇹🇷",
+    "ru": "🇷🇺",
     "de": "🇩🇪",
     "en": "🇬🇧",
 }
@@ -166,11 +168,12 @@ def parse_output(content, source_text):
     if source not in SUPPORTED_LANGS or not isinstance(raw_translations, dict):
         return None
 
-    # Beklenmeyen ekstra dil anahtarlari varsa reddet
-    if set(raw_translations.keys()) != {lang for lang in SUPPORTED_LANGS if lang != source}:
+    target_langs = [lang for lang in SUPPORTED_LANGS if lang != source]
+
+    # Tam olarak diger 3 hedef dil mevcut olmali, fazla veya eksik anahtar varsa reddet
+    if set(raw_translations.keys()) != set(target_langs):
         return None
 
-    target_langs = [lang for lang in SUPPORTED_LANGS if lang != source]
     translations = {}
     src_len = max(len(source_text.strip()), 1)
 
@@ -183,7 +186,7 @@ def parse_output(content, source_text):
 
         # Halusinasyon / uydurma uzunluk kontrolu:
         # Kisa bir mesaja paragraflar dolusu aciklama uydurursa reddet.
-        if len(cleaned) > max(src_len * 4, 120):
+        if len(cleaned) > max(src_len * 4, 140):
             logger.warning("Uydurma/uzun ceviri engellendi (%s): %s", lang, cleaned[:80])
             return None
 
@@ -216,7 +219,7 @@ async def request_translation(provider, user_prompt):
         ],
         "temperature": 0.0,
         "top_p": 0.1,
-        "max_tokens": 1500,
+        "max_tokens": 2000,
         "response_format": {"type": "json_object"},
     }
 
@@ -265,7 +268,7 @@ async def on_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     IS_BOT_ACTIVE = True
     if update.message:
         await update.message.reply_text(
-            "🟢 Viyana AI aktif. Türkçe ↔ Almanca ↔ İngilizce çeviri yapılıyor."
+            "🟢 Viyana AI aktif. Türkçe ↔ Rusça ↔ Almanca ↔ İngilizce çeviri yapılıyor."
         )
 
 
@@ -283,8 +286,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status = "🟢 Aktif" if IS_BOT_ACTIVE else "🔴 Kapalı"
     await update.message.reply_text(
         f"🤖 Merhaba {name}!\n\n"
-        "Ben Viyana AI — Türkçe, Almanca ve İngilizce sohbet çevirmeni.\n"
-        "Mesajları otomatik olarak diğer iki dile çeviririm.\n\n"
+        "Ben Viyana AI — Türkçe, Rusça, Almanca ve İngilizce sohbet çevirmeni.\n"
+        "Mesajları otomatik olarak diğer üç dile çeviririm.\n\n"
         f"Durum: {status}\n\n"
         "/on — Botu aç\n"
         "/off — Botu kapat\n"
@@ -296,10 +299,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
     await update.message.reply_text(
-        "📋 Viyana AI 2.2\n\n"
-        "🇹🇷 Türkçe → 🇩🇪 Almanca + 🇬🇧 İngilizce\n"
-        "🇩🇪 Almanca → 🇹🇷 Türkçe + 🇬🇧 İngilizce\n"
-        "🇬🇧 İngilizce → 🇹🇷 Türkçe + 🇩🇪 Almanca\n\n"
+        "📋 Viyana AI 2.3\n\n"
+        "🇹🇷 Türkçe → 🇷🇺 Rusça + 🇩🇪 Almanca + 🇬🇧 İngilizce\n"
+        "🇷🇺 Rusça → 🇹🇷 Türkçe + 🇩🇪 Almanca + 🇬🇧 İngilizce\n"
+        "🇩🇪 Almanca → 🇹🇷 Türkçe + 🇷🇺 Rusça + 🇬🇧 İngilizce\n"
+        "🇬🇧 İngilizce → 🇹🇷 Türkçe + 🇷🇺 Rusça + 🇩🇪 Almanca\n\n"
         "/start — Başlat\n"
         "/on — Aktif et\n"
         "/off — Kapat\n"
@@ -385,7 +389,7 @@ def main():
     )
     application.add_error_handler(error_handler)
 
-    logger.info("Viyana AI 2.2 baslatildi. Diller: Turkce <-> Almanca <-> Ingilizce")
+    logger.info("Viyana AI 2.3 baslatildi. Diller: Turkce <-> Rusca <-> Almanca <-> Ingilizce")
     application.run_polling(drop_pending_updates=True)
 
 
