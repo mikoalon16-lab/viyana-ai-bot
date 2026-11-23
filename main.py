@@ -28,7 +28,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("viyana_ai")
 
-# Yalnizca guclu/orta seviye modeller. 8B yedek modeller kaldirildi.
+# Yalnizca guclu/orta seviye modeller.
 # Bir saglayici teknik hata verirse siradakine gecilir.
 PROVIDERS = [
     {
@@ -58,7 +58,6 @@ PROVIDERS = [
 ]
 
 # Cevrilmemesi gereken kisi/ittifak/oyuncu adlarini buraya ekleyebilirsin.
-# Adlar varsayilan olarak yazildiklari bicimde korunur.
 KNOWN_NAMES = [
     "Ehed",
     "Fırat",
@@ -67,29 +66,29 @@ KNOWN_NAMES = [
 ]
 
 GLOSSARY = """
-Oyun baglami icin terim tercihleri:
-- трон / throne = taht (taç degil)
-- межсерверная битва / межсерверная война = sunucular arasi savas
-- альянс = ittifak
-- регион / территория = bolge
-- лидер = lider
-- алмазы = elmaslar
-- очередь за троном = taht sirasi / tahta cikma sirasi (cumle baglamina gore)
+Oyun baglami icin terim tercihleri (TR / RU / EN):
+- taht (taç degil) / трон / throne
+- sunucular arasi savas / межсерверная битва (война) / cross-server war (battle)
+- ittifak / альянс / alliance
+- bolge / регион (территория) / region (territory)
+- lider / лидер / leader
+- elmaslar / алмазы / diamonds
+- taht sirasi (tahta cikma sirasi) / очередь за троном / throne queue (throne rotation)
 Terimleri yalnizca baglam gercekten uyuyorsa kullan. Kaynakta olmayan oyun bilgisi ekleme.
 """
 
 SYSTEM_PROMPT = f"""
-You are Viyana AI, a careful Turkish-Russian chat translator for a gaming community.
+You are Viyana AI, a careful Turkish-Russian-English chat translator for a gaming community.
 
 SUPPORTED LANGUAGES:
 - Turkish (tr)
 - Russian (ru)
+- English (en)
 
 TASK:
-Translate ONLY the current SOURCE_TEXT directly from Turkish to Russian or from
-Russian to Turkish. Do not use English, German, or any other pivot language.
-Detect the source language, then return exactly one translation into the other
-supported language.
+Detect the language of SOURCE_TEXT (tr, ru, or en), then translate ONLY the current
+SOURCE_TEXT directly into the OTHER TWO supported languages.
+Do not use any unsupported language (such as German).
 
 ABSOLUTE FIDELITY RULES:
 1. Preserve the full meaning and every piece of information in the source.
@@ -97,11 +96,11 @@ ABSOLUTE FIDELITY RULES:
 3. Do not omit words, sentences, conditions, negations, numbers, or qualifications.
 4. Do not summarize, rewrite the message into a different message, or answer it.
 5. Preserve who did what to whom. Keep singular/plural, person, gender, tense,
-   certainty, and question/command form as accurately as the target language allows.
+   certainty, and question/command form as accurately as each target language allows.
 6. Preserve the speaker's tone: friendly, angry, joking, sarcastic, informal, etc.
 7. Translate idioms and slang by their actual meaning, not word-for-word, but
    never guess when the meaning is unclear. Keep the same ambiguity.
-8. Use natural everyday chat language used by native Turkish/Russian speakers.
+8. Use natural everyday chat language used by native Turkish, Russian, and English speakers.
    Do not use stiff, bookish, machine-translated phrasing.
 9. Preserve names, usernames, alliance names, @mentions, links, numbers,
    emojis, and game labels. Do not translate or invent names.
@@ -109,8 +108,8 @@ ABSOLUTE FIDELITY RULES:
     Never silently change the meaning to "fix" a sentence.
 11. Use CONTEXT and REPLYING_TO only to understand references, slang, and
     omitted subjects. Translate SOURCE_TEXT only. Never translate the context.
-12. If the source is not clearly Turkish or Russian, return source="unknown"
-    and translation="". Do not guess a language.
+12. If the source is not clearly Turkish, Russian, or English, return source="unknown"
+    and translations={{}}. Do not guess a language.
 13. If a phrase is genuinely ambiguous, preserve that ambiguity rather than
     choosing an unsupported interpretation.
 
@@ -121,10 +120,17 @@ GAMING GLOSSARY:
 {GLOSSARY}
 
 OUTPUT:
-Return only valid JSON, with exactly these keys:
-{{"source":"tr or ru or unknown","translation":"translated text"}}
+Return only valid JSON with "source" and "translations" containing ONLY the two target languages:
+{{"source":"tr or ru or en or unknown","translations":{{"target_lang_1":"...","target_lang_2":"..."}}}}
 No markdown and no commentary.
 """
+
+SUPPORTED_LANGS = ("tr", "ru", "en")
+LANG_FLAGS = {
+    "tr": "🇹🇷",
+    "ru": "🇷🇺",
+    "en": "🇬🇧",
+}
 
 CHAT_HISTORY = defaultdict(lambda: deque(maxlen=CONTEXT_SIZE))
 
@@ -156,17 +162,23 @@ def parse_output(content):
         return None
 
     source = str(data.get("source", "")).strip().lower()
-    translation = data.get("translation")
+    raw_translations = data.get("translations")
 
-    if source not in ("tr", "ru"):
+    if source not in SUPPORTED_LANGS or not isinstance(raw_translations, dict):
         return None
-    if not isinstance(translation, str) or not translation.strip():
-        return None
+
+    target_langs = [lang for lang in SUPPORTED_LANGS if lang != source]
+    translations = {}
+
+    for lang in target_langs:
+        text = raw_translations.get(lang)
+        if not isinstance(text, str) or not text.strip():
+            return None
+        translations[lang] = text.strip()
 
     return {
         "source": source,
-        "target": "ru" if source == "tr" else "tr",
-        "translation": translation.strip(),
+        "translations": translations,
     }
 
 
@@ -190,7 +202,7 @@ async def request_translation(provider, user_prompt):
             {"role": "user", "content": user_prompt},
         ],
         "temperature": 0,
-        "max_tokens": 1000,
+        "max_tokens": 1500,
         "response_format": {"type": "json_object"},
     }
 
@@ -216,9 +228,10 @@ async def translate_text(user_prompt):
             parsed = parse_output(raw)
 
             if parsed:
+                targets = ",".join(parsed["translations"].keys())
                 logger.info(
-                    "Ceviri tamamlandi: provider=%s source=%s target=%s",
-                    provider["name"], parsed["source"], parsed["target"]
+                    "Ceviri tamamlandi: provider=%s source=%s targets=%s",
+                    provider["name"], parsed["source"], targets
                 )
                 return parsed
 
@@ -235,7 +248,7 @@ async def on_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     IS_BOT_ACTIVE = True
     if update.message:
         await update.message.reply_text(
-            "🟢 Viyana AI aktif. Yalnizca Türkçe ↔ Rusça çeviri yapılıyor."
+            "🟢 Viyana AI aktif. Türkçe ↔ Rusça ↔ İngilizce çeviri yapılıyor."
         )
 
 
@@ -253,8 +266,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status = "🟢 Aktif" if IS_BOT_ACTIVE else "🔴 Kapalı"
     await update.message.reply_text(
         f"🤖 Merhaba {name}!\n\n"
-        "Ben Viyana AI — Türkçe ve Rusça sohbet çevirmeni.\n"
-        "Mesajları doğrudan diğer dile çeviririm.\n\n"
+        "Ben Viyana AI — Türkçe, Rusça ve İngilizce sohbet çevirmeni.\n"
+        "Mesajları otomatik olarak diğer iki dile çeviririm.\n\n"
         f"Durum: {status}\n\n"
         "/on — Botu aç\n"
         "/off — Botu kapat\n"
@@ -266,10 +279,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
     await update.message.reply_text(
-        "📋 Viyana AI 2.0\n\n"
-        "🇹🇷 Türkçe mesaj → 🇷🇺 Rusça\n"
-        "🇷🇺 Rusça mesaj → 🇹🇷 Türkçe\n\n"
-        "Almanca ve İngilizce çeviri kapalıdır.\n"
+        "📋 Viyana AI 2.1\n\n"
+        "🇹🇷 Türkçe → 🇷🇺 Rusça + 🇬🇧 İngilizce\n"
+        "🇷🇺 Rusça → 🇹🇷 Türkçe + 🇬🇧 İngilizce\n"
+        "🇬🇧 İngilizce → 🇹🇷 Türkçe + 🇷🇺 Rusça\n\n"
         "/start — Başlat\n"
         "/on — Aktif et\n"
         "/off — Kapat\n"
@@ -319,8 +332,11 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error("Ceviri yapilamadi; bos/uydurma bir ceviri gonderilmeyecek.")
         return
 
-    flags = {"tr": "🇹🇷", "ru": "🇷🇺"}
-    output = f"{flags[result['target']]} {result['translation']}"
+    lines = [
+        f"{LANG_FLAGS[lang]} {text}"
+        for lang, text in result["translations"].items()
+    ]
+    output = "\n".join(lines)
 
     try:
         await msg.reply_text(output)
@@ -348,7 +364,7 @@ def main():
     )
     application.add_error_handler(error_handler)
 
-    logger.info("Viyana AI 2.0 baslatildi. Diller: Turkce <-> Rusca")
+    logger.info("Viyana AI 2.1 baslatildi. Diller: Turkce <-> Rusca <-> Ingilizce")
     application.run_polling(drop_pending_updates=True)
 
 
