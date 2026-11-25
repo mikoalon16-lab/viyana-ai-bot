@@ -1,4 +1,5 @@
 import os
+import time
 import json
 import logging
 from collections import defaultdict, deque
@@ -28,36 +29,90 @@ logging.basicConfig(
 )
 logger = logging.getLogger("viyana_ai")
 
-# Yalnizca guclu ve yuksek dogruluklu modeller.
-# Bir saglayici hata verirse veya sacmalarsa siradakine gecilir.
-PROVIDERS = [
+# Sağlayıcı şablonları (Sırayla denenir)
+PROVIDER_CONFIGS = [
     {
         "name": "Gemini",
-        "env_key": "GEMINI_API_KEY",
+        "env_prefixes": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "model": "gemini-2.5-flash",
     },
     {
+        "name": "Groq",
+        "env_prefixes": ["GROQ_API_KEY"],
+        "base_url": "https://api.groq.com/openai/v1",
+        "model": "llama-3.3-70b-versatile",
+    },
+    {
         "name": "OpenAI",
-        "env_key": "OPENAI_API_KEY",
+        "env_prefixes": ["OPENAI_API_KEY"],
         "base_url": None,
         "model": "gpt-4.1-mini",
     },
     {
         "name": "Mistral",
-        "env_key": "MISTRAL_API_KEY",
+        "env_prefixes": ["MISTRAL_API_KEY"],
         "base_url": "https://api.mistral.ai/v1",
         "model": "mistral-small-latest",
     },
     {
-        "name": "Groq",
-        "env_key": "GROQ_API_KEY",
-        "base_url": "https://api.groq.com/openai/v1",
-        "model": "llama-3.3-70b-versatile",
+        "name": "OpenRouter",
+        "env_prefixes": ["OPENROUTER_API_KEY"],
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "google/gemini-2.5-flash",
+    },
+    {
+        "name": "DeepSeek",
+        "env_prefixes": ["DEEPSEEK_API_KEY"],
+        "base_url": "https://api.deepseek.com/v1",
+        "model": "deepseek-chat",
     },
 ]
 
-# Cevrilmemesi gereken kisi, ittifak ve oyuncu adlari.
+# Kota/token biten anahtarları geçici olarak (600 sn) dinlendirmek için
+COOLDOWN_UNTIL = {}
+COOLDOWN_SECONDS = 600
+
+
+def load_api_slots():
+    """
+    Render Dashboard'daki tüm anahtarları otomatik toplar.
+    Örn: GEMINI_API_KEY, GEMINI_API_KEY_1, GEMINI_API_KEY_2 veya virgülle ayrılmış keyler.
+    """
+    slots = []
+    seen_keys = set()
+
+    for cfg in PROVIDER_CONFIGS:
+        matched_vars = []
+        for env_name, env_val in sorted(os.environ.items()):
+            if not env_val or not env_val.strip():
+                continue
+            for prefix in cfg["env_prefixes"]:
+                if env_name == prefix or env_name.startswith(prefix + "_"):
+                    matched_vars.append((env_name, env_val.strip()))
+                    break
+
+        for env_name, raw_val in matched_vars:
+            # Eğer tek değişkene virgülle birden fazla key yazıldıysa ayır
+            parts = [k.strip() for k in raw_val.split(",") if k.strip()]
+            for idx, key in enumerate(parts, start=1):
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                label = f"{cfg['name']} ({env_name}" + (f"#{idx})" if len(parts) > 1 else ")")
+                slots.append({
+                    "id": f"{cfg['name']}_{env_name}_{idx}",
+                    "label": label,
+                    "provider": cfg["name"],
+                    "api_key": key,
+                    "base_url": cfg["base_url"],
+                    "model": cfg["model"],
+                })
+    return slots
+
+
+API_SLOTS = load_api_slots()
+
 KNOWN_NAMES = [
     "Ehed",
     "Əhəd",
@@ -100,18 +155,18 @@ SUPPORTED LANGUAGES ONLY:
 CORE TASK:
 1. Identify the exact language of SOURCE_TEXT ("tr", "ru", "de", or "en").
 2. Translate ONLY SOURCE_TEXT into the OTHER THREE supported languages.
-3. NEVER output any other language (no Azerbaijani unless identical to Turkish loanwords, no Arabic, no Spanish, no French).
+3. NEVER output any other language.
 
 ANTI-HALLUCINATION & STRICT ACCURACY RULES:
-1. NEVER answer questions in SOURCE_TEXT. If the user asks "What time is the war?", translate the question; DO NOT answer it.
+1. NEVER answer questions in SOURCE_TEXT. Translate the question; DO NOT answer it.
 2. NEVER continue or complete an unfinished sentence. Translate only what is written.
-3. NEVER add explanations, parentheses, notes, greetings, apologies, or extra words that do not exist in SOURCE_TEXT.
-4. NEVER omit negations ("not", "değil", "не", "нет", "nicht", "kein"), numbers, times, conditions ("if", "eğer", "если", "wenn"), or uncertainty ("maybe", "belki", "может быть", "vielleicht").
-5. Preserve exact subject-object relationships (who is attacking whom, who is giving what to whom).
-6. Understand gaming slang, abbreviations, and typos (e.g., "slm", "tmm", "nbr", "kanka", "спс", "пж", "хз", "бро", "digga", "alter", "gg", "afk") and translate their natural everyday chat equivalent without inventing extra meaning.
-7. Keep all proper names, nicknames, @mentions, links, numbers, and emojis untouched. Do not translate names like "Şahin" (hawk) or "Viyana" (Vienna) when used as player/alliance names.
-8. Use CONTEXT and REPLYING_TO strictly to resolve pronouns ("o", "bunu", "это", "das", "it") or ambiguous words. NEVER translate CONTEXT or REPLYING_TO.
-9. If SOURCE_TEXT is gibberish, just emojis/symbols, a single random letter, or a language other than Turkish/Russian/German/English, return:
+3. NEVER add explanations, parentheses, notes, greetings, apologies, or extra words.
+4. NEVER omit negations ("not", "değil", "не", "нет", "nicht", "kein"), numbers, times, conditions, or uncertainty.
+5. Preserve exact subject-object relationships.
+6. Understand gaming slang, abbreviations, and typos (e.g., "slm", "tmm", "nbr", "kanka", "спс", "пж", "хз", "бро", "digga", "alter", "gg", "afk") and translate their natural everyday chat equivalent.
+7. Keep all proper names, nicknames, @mentions, links, numbers, and emojis untouched.
+8. Use CONTEXT and REPLYING_TO strictly to resolve pronouns or ambiguous words. NEVER translate CONTEXT or REPLYING_TO.
+9. If SOURCE_TEXT is gibberish, just emojis/symbols, a single random letter, or an unsupported language, return:
    {{"source":"unknown","translations":{{}}}}
 
 KNOWN NAMES (DO NOT TRANSLATE):
@@ -121,7 +176,7 @@ GAMING GLOSSARY:
 {GLOSSARY}
 
 STRICT JSON OUTPUT FORMAT:
-Return ONLY a raw JSON object with no markdown blocks, no backticks, and no extra text:
+Return ONLY a raw JSON object with no markdown blocks or extra text:
 {{"source":"tr|ru|de|en|unknown","translations":{{"lang1":"exact translation 1","lang2":"exact translation 2","lang3":"exact translation 3"}}}}
 """
 
@@ -169,8 +224,6 @@ def parse_output(content, source_text):
         return None
 
     target_langs = [lang for lang in SUPPORTED_LANGS if lang != source]
-
-    # Tam olarak diger 3 hedef dil mevcut olmali, fazla veya eksik anahtar varsa reddet
     if set(raw_translations.keys()) != set(target_langs):
         return None
 
@@ -183,9 +236,6 @@ def parse_output(content, source_text):
             return None
 
         cleaned = text.strip()
-
-        # Halusinasyon / uydurma uzunluk kontrolu:
-        # Kisa bir mesaja paragraflar dolusu aciklama uydurursa reddet.
         if len(cleaned) > max(src_len * 4, 140):
             logger.warning("Uydurma/uzun ceviri engellendi (%s): %s", lang, cleaned[:80])
             return None
@@ -198,68 +248,82 @@ def parse_output(content, source_text):
     }
 
 
-async def request_translation(provider, user_prompt):
-    api_key = os.getenv(provider["env_key"])
-    if not api_key:
-        return None
-
+async def request_translation(slot, user_prompt):
     client_kwargs = {
-        "api_key": api_key,
-        "timeout": 30,
+        "api_key": slot["api_key"],
+        "timeout": 20,
         "max_retries": 0,
     }
-    if provider["base_url"]:
-        client_kwargs["base_url"] = provider["base_url"]
+    if slot["base_url"]:
+        client_kwargs["base_url"] = slot["base_url"]
 
     params = {
-        "model": provider["model"],
+        "model": slot["model"],
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
         "temperature": 0.0,
         "top_p": 0.1,
-        "max_tokens": 2000,
-        "response_format": {"type": "json_object"},
+        "max_tokens": 1500,
     }
+
+    # Bazı OpenAI uyumlu sağlayıcılarda response_format hatasını önlemek için:
+    if slot["provider"] in ("Gemini", "OpenAI", "Mistral", "Groq"):
+        params["response_format"] = {"type": "json_object"}
 
     async with AsyncOpenAI(**client_kwargs) as client:
         response = await client.chat.completions.create(**params)
         content = response.choices[0].message.content
-        if content:
-            return content.strip()
-        return ""
+        return content.strip() if content else ""
 
 
 async def translate_text(user_prompt, source_text):
-    configured = [
-        provider for provider in PROVIDERS
-        if os.getenv(provider["env_key"])
-    ]
-
-    if not configured:
-        logger.error("Hicbir ceviri API anahtari tanimli degil.")
+    if not API_SLOTS:
+        logger.error("HICBIR API ANAHTARI BULUNAMADI! Render Environment Variables kontrol et.")
         return None
 
-    for provider in configured:
+    now = time.time()
+    # Önce dinlendirmede olmayan aktif anahtarları dene; hepsi dinlendirmedeyse yine de sıradan dene
+    active_slots = [s for s in API_SLOTS if COOLDOWN_UNTIL.get(s["id"], 0) <= now]
+    candidates = active_slots if active_slots else API_SLOTS
+
+    for slot in candidates:
         try:
-            logger.info("Ceviri deneniyor: %s / %s", provider["name"], provider["model"])
-            raw = await request_translation(provider, user_prompt)
+            logger.info("Deneniyor -> %s | Model: %s", slot["label"], slot["model"])
+            raw = await request_translation(slot, user_prompt)
             parsed = parse_output(raw, source_text)
 
             if parsed:
-                targets = ",".join(parsed["translations"].keys())
+                # Başarılı olursa varsa cooldown'u temizle
+                COOLDOWN_UNTIL.pop(slot["id"], None)
                 logger.info(
-                    "Ceviri tamamlandi: provider=%s source=%s targets=%s",
-                    provider["name"], parsed["source"], targets
+                    "BASARILI -> %s | %s -> %s",
+                    slot["label"],
+                    parsed["source"],
+                    ",".join(parsed["translations"].keys()),
                 )
                 return parsed
 
-            logger.warning("%s gecerli/guvenli ceviri JSON'u dondurmedi.", provider["name"])
+            logger.warning("%s gecerli JSON dondurmedi, siradakine geciliyor...", slot["label"])
 
         except Exception as error:
-            logger.warning("Saglayici hatasi (%s): %s", provider["name"], error)
+            err_str = str(error).lower()
+            is_quota_or_auth = any(
+                code in err_str
+                for code in ("429", "401", "402", "403", "quota", "rate limit", "insufficient", "credit", "billing", "exceeded", "invalid_api_key")
+            )
+            if is_quota_or_auth:
+                COOLDOWN_UNTIL[slot["id"]] = time.time() + COOLDOWN_SECONDS
+                logger.warning(
+                    "TOKEN/KOTA DOLU VEYA GECERSIZ (%s) -> 10 dk pasife alindi, siradakine geciliyor! Detay: %s",
+                    slot["label"],
+                    error,
+                )
+            else:
+                logger.warning("Baglanti/API hatasi (%s) -> siradakine geciliyor: %s", slot["label"], error)
 
+    logger.error("TUM API ANAHTARLARI DENENDI AMA CEVIRI ALINAMADI!")
     return None
 
 
@@ -279,6 +343,18 @@ async def off_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔴 Viyana AI durduruldu.")
 
 
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
+        return
+    now = time.time()
+    lines = [f"📊 Yüklü API Sayısı: {len(API_SLOTS)}"]
+    for s in API_SLOTS:
+        wait = int(COOLDOWN_UNTIL.get(s["id"], 0) - now)
+        state = f"⏳ Dinlenmede ({wait}s)" if wait > 0 else "✅ Hazır"
+        lines.append(f"• {s['label']} -> {state}")
+    await update.message.reply_text("\n".join(lines))
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
@@ -286,11 +362,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status = "🟢 Aktif" if IS_BOT_ACTIVE else "🔴 Kapalı"
     await update.message.reply_text(
         f"🤖 Merhaba {name}!\n\n"
-        "Ben Viyana AI — Türkçe, Rusça, Almanca ve İngilizce sohbet çevirmeni.\n"
-        "Mesajları otomatik olarak diğer üç dile çeviririm.\n\n"
-        f"Durum: {status}\n\n"
+        "Ben Viyana AI — Türkçe, Rusça, Almanca ve İngilizce sohbet çevirmeni.\n\n"
+        f"Durum: {status} | Aktif API Slot: {len(API_SLOTS)}\n\n"
         "/on — Botu aç\n"
         "/off — Botu kapat\n"
+        "/status — API durumlarını gör\n"
         "/help — Yardım"
     )
 
@@ -299,22 +375,23 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
     await update.message.reply_text(
-        "📋 Viyana AI 2.3\n\n"
-        "🇹🇷 Türkçe → 🇷🇺 Rusça + 🇩🇪 Almanca + 🇬🇧 İngilizce\n"
-        "🇷🇺 Rusça → 🇹🇷 Türkçe + 🇩🇪 Almanca + 🇬🇧 İngilizce\n"
-        "🇩🇪 Almanca → 🇹🇷 Türkçe + 🇷🇺 Rusça + 🇬🇧 İngilizce\n"
-        "🇬🇧 İngilizce → 🇹🇷 Türkçe + 🇷🇺 Rusça + 🇩🇪 Almanca\n\n"
+        "📋 Viyana AI 2.4\n\n"
+        "🇹🇷 Türkçe ↔ 🇷🇺 Rusça ↔ 🇩🇪 Almanca ↔ 🇬🇧 İngilizce\n\n"
         "/start — Başlat\n"
         "/on — Aktif et\n"
         "/off — Kapat\n"
-        "/help — Yardım"
+        "/status — API anahtarlarını kontrol et"
     )
 
 
 async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
+    if not msg or not msg.text:
+        return
 
-    if not IS_BOT_ACTIVE or not msg or not msg.text:
+    logger.info("Mesaj alindi [chat=%s]: %s", msg.chat_id, msg.text[:40])
+
+    if not IS_BOT_ACTIVE:
         return
 
     if msg.from_user and msg.from_user.is_bot:
@@ -324,14 +401,11 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not source_text or source_text.startswith("/") or len(source_text) < 2:
         return
 
-    # Sadece rakam veya noktalama isaretlerinden olusan mesajlari cevirme
     if not any(ch.isalpha() for ch in source_text):
         return
 
     if len(source_text) > MAX_MESSAGE_LENGTH:
-        await msg.reply_text(
-            f"⚠️ Mesaj çok uzun. Maksimum {MAX_MESSAGE_LENGTH} karakter."
-        )
+        await msg.reply_text(f"⚠️ Mesaj çok uzun. Maksimum {MAX_MESSAGE_LENGTH} karakter.")
         return
 
     chat_id = msg.chat_id
@@ -349,12 +423,9 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     result = await translate_text(user_prompt, source_text)
-
-    # Yalnizca kullanicinin orijinal mesajini hafizaya ekle.
     CHAT_HISTORY[chat_id].append(f"{sender}: {source_text[:500]}")
 
     if not result:
-        logger.info("Mesaj cevrilmedi (desteklenmeyen dil, anlamsiz metin veya saglayici hatasi).")
         return
 
     lines = [
@@ -375,21 +446,25 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     if not TELEGRAM_BOT_TOKEN:
-        logger.error("TELEGRAM_BOT_TOKEN bulunamadi! .env dosyasini kontrol et.")
+        logger.error("TELEGRAM_BOT_TOKEN bulunamadi! Render Environment ayarini kontrol et.")
         return
+
+    logger.info("Viyana AI 2.4 baslatiliyor... Bulunan API anahtari sayisi: %d", len(API_SLOTS))
+    for slot in API_SLOTS:
+        logger.info(" -> Yuklenen API: %s", slot["label"])
 
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("on", on_command))
     application.add_handler(CommandHandler("off", off_command))
+    application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages)
     )
     application.add_error_handler(error_handler)
 
-    logger.info("Viyana AI 2.3 baslatildi. Diller: Turkce <-> Rusca <-> Almanca <-> Ingilizce")
     application.run_polling(drop_pending_updates=True)
 
 
